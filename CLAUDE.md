@@ -19,7 +19,9 @@ contract; read it fully before touching anything.
   If you learned it and it's not written in one of those places, the team doesn't know it.
 
 ## Workflow (issue-driven, one-to-one)
-- Work = GitHub issues. **One issue ↔ one PR, exactly** (`Closes #N` in the PR body). No
+- Work = GitHub issues, sliced fine-grained for parallel delegation (a milestone may span a
+  small set of issues; its PRD §7 pass = the union of their checklists). **One issue ↔ one PR,
+  exactly** (`Closes #N` in the PR body). No
   drive-by changes outside the issue's scope; found something else? Open a new issue.
 - Comment on the issue when you take it. Branch `m<N>-<slug>` off master. One commit per §10
   build step or coherent unit.

@@ -214,7 +214,7 @@ loop is just `apply_op`'s execute awaiting an approval promise the ProposalCard 
 | `BriefArtifact` | first turn | fields editable in place; edits update pinned context |
 | `ComponentCard` | agent mentions/reads a component | click → highlight + scroll it in the preview; "ask about this" seeds the composer |
 | `ProposalCard` | agent proposes an op | before/after slot diff + COM score badge + reasons; **Approve / Reject** buttons resolve `apply_op` |
-| `VariantSummary` | on request / after M3 | op list + score; toggle control/variant in preview |
+| `VariantGallery` | on request / after M3 | card per saved variant: best-effort thumbnail, COM delta, segment tag; click → switch preview |
 
 Mechanism (thin, from the SDK): the loop streams typed message parts (text, tool call, tool
 result); `MessageList` is a switch from part type → block component — no bespoke protocol.
@@ -282,8 +282,11 @@ The arc must end in something you can run. **Export** produces one self-containe
 - **Contents:** the variant's ops (JSON) + a small standalone applier (IIFE, dependency-free,
   same re-find rules as the runtime: `SelectorRef` + fingerprint against the ORIGINAL page —
   where fingerprints are valid — **drop-and-report on mismatch, never guess**).
-- **It is an A/B test, not a patch:** the applier assigns each visitor to `control` or
-  `variant` (50/50, persisted in `localStorage`), applies ops only for the variant group, and
+- **It is an A/B test, not a patch:** in `ab` mode the applier assigns each visitor to
+  `control` or `variant` (50/50, persisted in `localStorage`); in **`segment` mode** it applies
+  the variant only when the segment's signal matches (UTM/query param, referrer, device class —
+  rule-based, deterministic, no ML pretense). Either way it applies ops only for the targeted
+  group, and
   exposes the assignment (`window.__overlayVariant` + a `data-overlay-variant` attribute) so
   the site's own analytics (GA4/PostHog/anything) can segment conversions. We deliberately do
   NOT measure — measurement belongs to the site's analytics; we make the assignment readable.
@@ -353,7 +356,8 @@ interface VariantOp { id: string; source: "human" | "agent"; op: Op;
                       status: "pending" | "applied" | "rejected" | "failed"; }
 
 interface Variant { id: string; name: string;   // "Pain-point hero" — agent- or human-named
-                    goal: string; ops: VariantOp[]; score?: ComScore }
+                    goal: string; segment?: string; // aimed at a brief segment (B/personalization)
+                    ops: VariantOp[]; score?: ComScore }
 // The app holds Variant[] + activeId ("control" | variant id). Ops always record prevSlots
 // vs CONTROL; switching tabs = revert all applied ops → replay the selected variant's list.
 
@@ -370,6 +374,8 @@ interface PageBrief {
   ctaAudit: { path: string; text: string; intentStage: string }[];
   a11yAudit: { path: string; issue: string }[];   // ADA rollup from node facts — deterministic,
                                                   // rendered in the brief; fixes = variant ideas
+  segments: { name: string; signal: string }[];   // 2-3 audiences + a DETECTABLE signal each
+                                                  // (utm/query param, referrer, device class)
   suggestedGoals: string[];
   tone: string; lang: string;     // brand language lives here — no separate BrandProfile object
 }
@@ -406,8 +412,9 @@ A milestone is not done when the code exists; it's done when its **pass** succee
 cumulative — each milestone's pass re-runs the previous ones (they're cheap; regressions caught
 same-day).
 
-- **M1 — hero tracer.** *Deliverable:* chat + preview shell, ingest, hero detection, op
-  pipeline, browser loop (build order §10). *Pass:* on `maxtechera.dev` — send the URL, get a
+- **M1 — hero tracer.** *Deliverable:* chat + preview shell with the **front-door empty
+  state** (URL input + "paste your URL — analysis takes about a minute"), ingest, hero
+  detection, op pipeline, browser loop (build order §10). *Pass:* on `maxtechera.dev` — send the URL, get a
   mini-brief; say "change the copy, point the CTA at /demo"; approve the proposal card; the hero
   visibly changes in <500 ms and revert restores it. On a bot-walled URL: clear error in chat,
   no hang.
@@ -417,12 +424,13 @@ same-day).
   identifies hero + ≥3 sections + cards where they exist; `ComponentCard`/overlay show computed
   facts (lines · fontPx · contrast) that spot-check TRUE against devtools; the brief renders
   with every field grounded (no invented claims on spot check) including an ADA findings list
-  derived from facts; click a preview component → reference chip appears; edit the ICP field →
+  derived from facts and 2–3 segments each with a detectable signal; click a preview component → reference chip appears; edit the ICP field →
   next agent turn reflects the edit.
 - **M3 — variants + COM.** *Deliverable:* **multiple named variants** — `create_variant` tool,
   variant tabs (Control · A · B · +), switching reverts to control and replays the selected op
   list; per-op revert; `score_variant` wired, proposals pre-scored; a ranked **variant
-  comparison** view (COM delta + reasons per variant); and **warn-only regression checks** —
+  gallery** (card per variant: best-effort html2canvas thumbnail — styled fallback card is a
+  pass — COM delta, segment tag; click switches the preview); and **warn-only regression checks** —
   after every apply, the runtime re-computes the target's facts and flags regressions on the
   op: overflow, line-count growth, contrast below WCAG AA, lost alt (no retries, no
   screenshots — the full verify loop stays M7; this is the honesty layer that protects the MVP
@@ -441,8 +449,8 @@ same-day).
   (§4.6): per-variant picker → ops JSON + standalone applier with 50/50 bucketing, assignment exposed for analytics.
   *Pass:* pick any saved variant in the Export block; paste the exported snippet into the browser console on the ORIGINAL live page (clean
   tab, no app) → variant applies (forced bucket); as a `<script>` tag → visitors bucket 50/50
-  and `window.__overlayVariant` reads correctly; fingerprint mismatch → drop-and-report,
-  never guess.
+  and `window.__overlayVariant` reads correctly; a segment-mode export applies ONLY when its
+  signal matches (e.g. `?utm_source=x`); fingerprint mismatch → drop-and-report, never guess.
 
 **MVP gate — full-experience E2E validation (run when M5 passes; this is also the demo
 dry-run):** one scripted session per test site (`posthog.com`, `maxtechera.dev`, `astro.build`),

@@ -152,9 +152,10 @@ export const makeTools = (deps: { send: SendToIframe; stores: Stores }) => ({
     execute: async ({ opId }) => deps.send({ t: "revert-op", opId }),
   }),
   create_variant: tool({
-    description: "Save a recommendation as a new named variant and make it active. Use one variant per distinct angle/hypothesis.",
-    inputSchema: z.object({ name: z.string().max(60), goal: z.string().optional() }),
-    execute: async ({ name, goal }) => deps.stores.variants.create(name, goal),  // { variantId }
+    description: "Save a recommendation as a new named variant and make it active. Use one variant per distinct angle/hypothesis. Optionally aim it at a brief segment.",
+    inputSchema: z.object({ name: z.string().max(60), goal: z.string().optional(),
+                            segment: z.string().optional() }),
+    execute: async ({ name, goal, segment }) => deps.stores.variants.create(name, goal, segment),
   }),
   score_variant: tool({
     description: "Independent conversion rating of the ACTIVE variant vs control.",
@@ -331,9 +332,12 @@ must be grounded in what the page actually says; write "unknown" rather than inv
 session:  { url; status: "idle"|"ingesting"|"extracting"|"ready"|"error"; error?;
             brief: PageBrief | null; goal: string; setGoal; patchBrief }
 schema:   { nodes: Record<string, PageNode>; order: string[]; outline(); node(id) }
-variants: { list: Variant[]; activeId: "control" | string; create(name, goal?);
+variants: { list: Variant[]; activeId: "control" | string; create(name, goal?, segment?);
             setActive(id) }      // setActive = revert all applied ops → replay target's list;
                                  // ops always store prevSlots vs CONTROL, so replay is exact
+// Thumbnails (M3, best-effort): parent runs html2canvas against iframe.contentDocument.body
+// (same-origin) on first score of a variant; try/catch → styled fallback card. Runtime stays
+// dependency-free — html2canvas lives in the PARENT, reaching into the frame.
 chat:     { blocks: ChatBlock[]; messages: ModelMessage[]; streaming: boolean;
             pushUser; appendText; openTool; closeTool; pushError;
             commitTurn(userMsg, responseMsgs) }   // appends user + assistant/tool to messages
@@ -433,9 +437,15 @@ targets).
 (function () {
   var OPS = [/* the variant's applied ops, JSON: {target: SelectorRef, slots} */];
   var KEY = "overlay-ab-<variantId>";
-  var bucket = localStorage.getItem(KEY) ||
-    (localStorage.setItem(KEY, Math.random() < 0.5 ? "control" : "variant"),
-     localStorage.getItem(KEY));
+  var MODE = "ab";                    // or "segment", with SIGNAL = {param,value}|{device}|{referrer}
+  var bucket;
+  if (MODE === "segment") {
+    bucket = /* signal matches? */ "variant" /* else */ ;   // deterministic rule, no persistence needed
+  } else {
+    bucket = localStorage.getItem(KEY) ||
+      (localStorage.setItem(KEY, Math.random() < 0.5 ? "control" : "variant"),
+       localStorage.getItem(KEY));
+  }
   if (location.hash === "#overlay-force-variant") bucket = "variant";   // console/demo path
   window.__overlayVariant = bucket;
   document.documentElement.setAttribute("data-overlay-variant", bucket);

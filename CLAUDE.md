@@ -10,14 +10,28 @@ contract; read it fully before touching anything.
    §11 the pre-solved hard parts. Do not re-decide decided things.
 3. This file — team workflow + durable learnings.
 
-## Workflow (issue-driven)
-- Work = GitHub issues (`gh issue list`). One issue at a time; comment that you're taking it.
-- Branch `m<N>-<slug>` off master. One commit per §10 build step or coherent unit.
-- **A milestone is done when its PASS runs green, not when code exists.** Passes are cumulative:
-  re-run earlier ones before opening a PR.
-- PR must include **evidence**: the pass's observable result (terminal output, screenshot, or
-  short recording) + which PRD/TECH-SPEC sections it implements. Reference the issue.
-- Never merge red. Never weaken a pass to make it green — fix the code or raise it on the issue.
+## Shared context & memory (how a team of agents stays coherent)
+- **Shared context** = this repo: PRD.md (the unified vision — every milestone in §7 maps 1:1
+  to a GitHub issue), TECH-SPEC.md (contracts), this file (workflow + learnings). Read all
+  three before working; never rely on private context another agent can't see.
+- **Shared memory** = two layers: durable → the Learnings section below (one line per gotcha,
+  added in the PR that hit it); situational → issue/PR comments (searchable by every agent).
+  If you learned it and it's not written in one of those places, the team doesn't know it.
+
+## Workflow (issue-driven, one-to-one)
+- Work = GitHub issues. **One issue ↔ one PR, exactly** (`Closes #N` in the PR body). No
+  drive-by changes outside the issue's scope; found something else? Open a new issue.
+- Comment on the issue when you take it. Branch `m<N>-<slug>` off master. One commit per §10
+  build step or coherent unit.
+- **A milestone is done when its PASS runs green, not when code exists.** The issue's
+  acceptance checklist IS the pass. Passes are cumulative: re-run earlier milestones' specs
+  before opening a PR.
+- **Every PR must carry evidence mapped to the acceptance criteria**: for EACH checklist item
+  on the issue, the PR description states how it's proven — a `@mN` e2e spec name + the CI
+  screenshot/video artifact, or a terminal output for non-visual items. Snapshots are not
+  optional; CI records them on every test and harness-lint enforces specs exist.
+- Never merge red. Never weaken a pass or a spec to make it green — fix the code or raise it
+  on the issue.
 
 ## Hard rules
 - No dependencies beyond PRD §6. UI comes from AI Elements/shadcn — never hand-roll chat

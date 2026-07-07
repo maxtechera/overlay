@@ -321,6 +321,10 @@ source — the code lives in our repo.
 
 ## 7. Milestones — MVP = M1–M4. Every milestone = deliverable + a pass you can RUN.
 
+This section is the unified vision decomposed into deliverables: **each milestone maps 1:1 to a
+GitHub issue** (the issue's acceptance checklist = the pass below), and each issue maps 1:1 to
+the PR that closes it, with recorded evidence per criterion (CLAUDE.md → Workflow).
+
 A milestone is not done when the code exists; it's done when its **pass** succeeds. Passes are
 cumulative — each milestone's pass re-runs the previous ones (they're cheap; regressions caught
 same-day).

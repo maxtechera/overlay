@@ -20,9 +20,9 @@ listed in §8 so we can say it out loud instead of getting caught by it.
 > - **How to build:** follow §10's build order, one commit per step; code contracts live in
 >   **TECH-SPEC.md** (follow its §0 pins exactly — the version traps in it were hit for real).
 >   A milestone is done when its §7 pass runs green, not when code exists.
-> - **Sequencing is by dependency, not dates:** M1 → M2 → M3 → M4 → MVP gate (#5), strictly in
->   order (each pass builds on the previous). After M4, the tail fans out: M5 (evals) · M6
->   (verify) · M8 (export) are independent of each other; M7 (structure) depends on M6.
+> - **Sequencing is by dependency, not dates:** M1 → M2 → M3 → M4 → M5 → MVP gate (#5), strictly in
+>   order (each pass builds on the previous). After M5, the tail fans out: M6 (evals) · M7
+>   (verify) · M9 (bandit sim) are independent of each other; M8 (structure) depends on M7.
 
 ---
 
@@ -58,7 +58,10 @@ Surface = **chat (left) + live preview (right)**.
 5. Everything learned persists to **site memory** (§4.5): verdicts, the brief, learnings the
    agent chooses to keep. **Reopening the same URL resumes the project** — brief loads from
    disk, the agent picks up where it left off.
-6. **Export** (post-MVP): variant as an injection snippet (ops JSON + tiny runtime).
+6. **Export (§4.6): the variant leaves the tool as a deployable A/B script** — copy/paste it
+   into your site (or inject it at the edge): it buckets visitors 50/50, applies the variant's
+   ops for the test group, and exposes the assignment for your analytics. The full arc ends
+   with something you can actually run as an experiment.
 
 **First tracer:** identify the **hero** only, update its **copy + link** from chat. One
 component, end-to-end through every layer.
@@ -76,6 +79,9 @@ component, end-to-end through every layer.
 - **Rich chat**: tool calls displayed live, and components / proposals / variants / the brief
   render as interactive inline blocks (§4.3) — the user drives by clicking *and* chatting, in
   both directions (click in preview → reference in chat; click in chat → highlight in preview).
+- **The variant is exportable as a runnable A/B script** (§4.6): paste into the real site (or
+  edge-inject), visitors get bucketed, the test group gets the variant. The MVP's output is an
+  experiment, not a mockup.
 
 **Acceptance bar** (dev test set in TECH-SPEC §10, proxy-validated)
 1. A genuinely static page: full flow.
@@ -115,7 +121,7 @@ install" deployment model.
 Classify into `hero | section | card | collection | text | media | link`, where `text` carries a
 `variant` (`h1|h2|h3|p|label`) from **computed type scale, not the tag** (half the web puts h1
 styles on a div). M1 detects only the hero (§10 step 3); the full walk lands in M2; card/collection
-pattern-mining lands with structural ops (M7). The runtime also reads SEO basics
+pattern-mining lands with structural ops (M8). The runtime also reads SEO basics
 (title/meta/OG/h1–h3) off the DOM — no separate server path.
 
 **Deterministic by requirement — pure code, no LLM, same input → same schema.** Detection is a
@@ -142,7 +148,7 @@ rest").
 `{ css: "#id | [data-*] | structural path", fingerprint: "first 40 chars normalized" }`.
 Re-find requires the fingerprint to still match; **on mismatch: drop the op and report — never
 guess.** Valid schema ≠ valid layout: constrained ops bound *what* the agent touches, they don't
-guarantee rendering — that honesty stays in the demo script, and the verify loop (M6) is the fix.
+guarantee rendering — that honesty stays in the demo script, and the verify loop (M7) is the fix.
 
 ### 4.3 The agent — loop in the browser
 **One loop host, no abstraction layer:** Vercel AI SDK core (`ai` + `@ai-sdk/anthropic`) running
@@ -194,7 +200,7 @@ A second model in its own context. `scoreVariant(control, variantOps, brief, goa
 gap?) and reports the **delta** — unanchored single scores cluster around 0.7 and read as
 arbitrary; the comparison is what carries information. Generator ≠ evaluator: the agent never sees the COM's rubric; the COM prompt states the
 goal but never enumerates what "good" looks like. Honest framing: **zero traffic → this is a
-prior, not conversion data**; real ranking is bandits over live users (out of scope; M8 simulates
+prior, not conversion data**; real ranking is bandits over live users (out of scope; M9 simulates
 the handoff). Swappable by design — `variant in → score out` is where a trained model slots in
 later, and every `(brief, op, score, human verdict)` is logged as its future training data.
 
@@ -231,7 +237,7 @@ last session") instead of silently trusted.
   and `memory.md` is a real file you can open on screen — the "CLAUDE.md for your website"
   moment — the product matures with each site it works on.
 
-**Evals (M5, first post-MVP):**
+**Evals (M6, first post-MVP):**
 1. **Harness smoke evals** (no LLM, per commit): ingest + extract against the validated 3-site
    set; assert hero found, slots non-empty, apply/revert round-trips.
 2. **COM sanity suite** — the answer to "how do you know your judge isn't noise": ~6 fixture
@@ -241,14 +247,34 @@ last session") instead of silently trusted.
    replayable — after any prompt change, check whether the COM agrees with past human verdicts
    more or less.
 
-### 4.6 Post-MVP mechanisms (specified so we don't improvise later)
-- **Verify loop (M6):** after apply → overflow/clipping + layout-shift + WCAG contrast checks in
+### 4.6 Export (M5, in the MVP) — the variant as a deployable A/B script
+The arc must end in something you can run. **Export** produces one self-contained snippet:
+
+- **Contents:** the variant's ops (JSON) + a small standalone applier (IIFE, dependency-free,
+  same re-find rules as the runtime: `SelectorRef` + fingerprint against the ORIGINAL page —
+  where fingerprints are valid — **drop-and-report on mismatch, never guess**).
+- **It is an A/B test, not a patch:** the applier assigns each visitor to `control` or
+  `variant` (50/50, persisted in `localStorage`), applies ops only for the variant group, and
+  exposes the assignment (`window.__overlayVariant` + a `data-overlay-variant` attribute) so
+  the site's own analytics (GA4/PostHog/anything) can segment conversions. We deliberately do
+  NOT measure — measurement belongs to the site's analytics; we make the assignment readable.
+- **Two deployment paths:** (1) copy/paste a `<script>` tag before `</body>` — the "one script
+  you install" model, for real; (2) the same snippet is edge-injectable (documented example:
+  rewrite `</body>` in a Cloudflare Worker / Vercel Edge Middleware) — post-MVP to *document*,
+  zero extra code to *enable*, since the snippet is identical.
+- **Instant sanity path:** pasting the snippet into the browser console on the original live
+  page applies the variant immediately (forced `variant` bucket) — the acceptance test and the
+  quickest demo of "this leaves the tool."
+
+### 4.7 Post-MVP mechanisms (specified so we don't improvise later)
+- **Verify loop (M7):** after apply → overflow/clipping + layout-shift + WCAG contrast checks in
   the runtime; failures return to the agent → revise → retry (max 2) → proof note on the op. No
   unverified op reaches `applied` once this ships.
-- **New sections (M7): clone-and-fill, not free generation.** Deep-clone the nearest donor
+- **New sections (M8): clone-and-fill, not free generation.** Deep-clone the nearest donor
   pattern already on the page; agent only fills typed slots; a11y enforced at fill time (heading
   hierarchy, alt, focusable CTAs). Squeezes the parameter space; on-brand by construction.
-- **Export (M8):** ops JSON + a ~50-line standalone applier script.
+- **Bandit sim (M9):** Thompson-sampling simulation over synthetic traffic showing how the COM
+  prior seeds a bandit that then learns from (synthetic) conversions.
 
 ---
 
@@ -273,7 +299,7 @@ interface PageNode {
   children?: string[];
 }
 
-// MVP op = update-content only. "collection-edit" and "add-section" join in M7.
+// MVP op = update-content only. "collection-edit" and "add-section" join in M8.
 type Op = { op: "update-content"; target: string /* node id */;
             slots: Record<string, { text?: string; href?: string; src?: string; alt?: string }>;
             rationale: string };
@@ -320,7 +346,7 @@ Runner-up: `assistant-ui` — stronger runtime/state management, but we already 
 component turns out to hard-require `useChat` context, keep its markup/styles and swap the data
 source — the code lives in our repo.
 
-## 7. Milestones — MVP = M1–M4. Every milestone = deliverable + a pass you can RUN.
+## 7. Milestones — MVP = M1–M5. Every milestone = deliverable + a pass you can RUN.
 
 This section is the unified vision decomposed into deliverables: **each milestone maps 1:1 to a
 GitHub issue** (the issue's acceptance checklist = the pass below), and each issue maps 1:1 to
@@ -346,37 +372,44 @@ same-day).
   `posthog.com` — each proposal card shows control/variant/delta + reasons referencing the
   brief; toggle control↔variant flips the page; an obviously-worse variant (ask the agent to
   "make the headline vague and generic") scores a negative delta.
-- **M4 — site memory (MVP closes here).** *Deliverable:* memory API + `.memory/<hostname>/`,
+- **M4 — site memory.** *Deliverable:* memory API + `.memory/<hostname>/`,
   `save_memory` tool, memory in context, resume + stale-diff. *Pass:* reject a proposal with a
   reason → next proposal respects it → **quit the browser, reopen, same URL** → brief loads
   from disk without an LLM call, the agent's greeting references the learning, and
   `.memory/<hostname>/memory.md` contains it.
 
-**MVP gate — full-experience E2E validation (run when M4 passes; this is also the demo
+- **M5 — export (MVP closes here).** *Deliverable:* the variant as a deployable A/B script
+  (§4.6): ops JSON + standalone applier with 50/50 bucketing, assignment exposed for analytics.
+  *Pass:* paste the exported snippet into the browser console on the ORIGINAL live page (clean
+  tab, no app) → variant applies (forced bucket); as a `<script>` tag → visitors bucket 50/50
+  and `window.__overlayVariant` reads correctly; fingerprint mismatch → drop-and-report,
+  never guess.
+
+**MVP gate — full-experience E2E validation (run when M5 passes; this is also the demo
 dry-run):** one scripted session per test site (`posthog.com`, `maxtechera.dev`, `astro.build`),
 each covering the entire arc — URL → brief → goal chip → 2+ proposals → approve one, reject one
-with a reason → score delta visible → reload → resume with memory. Plus the failure lap: a
-bot-walled URL and a page with no detectable hero, both answered honestly in chat. **Record the
-best full run as a video** — it's the demo insurance and the proof artifact. MVP is "complete"
-only when this gate passes on all three sites without touching code between runs.
+with a reason → score delta visible → reload → resume with memory → **export the snippet and
+apply it on the original live page**. Plus the failure lap: a bot-walled URL and a page with no
+detectable hero, both answered honestly in chat. **Record the best full run as a video** — it's
+the demo insurance and the proof artifact. MVP is "complete" only when this gate passes on all
+three sites without touching code between runs.
 
-- **M5 — evals** (§4.5). *Pass:* `pnpm eval` runs extraction smoke tests on saved fixtures +
+- **M6 — evals** (§4.5). *Pass:* `pnpm eval` runs extraction smoke tests on saved fixtures +
   the 6-case COM sanity suite, exit 0; a deliberately broken fixture fails it.
-- **M6 — verify loop** (§4.6). *Pass:* an op that overflows its container gets auto-revised or
+- **M7 — verify loop** (§4.7). *Pass:* an op that overflows its container gets auto-revised or
   surfaced as "needs human," with the check results attached.
-- **M7 — structure ops** (§4.6). *Pass:* "add a social-proof section after the hero" on a page
-  with a donor pattern → new section inherits classes, passes a11y fill rules, verified by M6.
-- **M8 — export + bandit sim.** *Pass:* exported snippet applied to the *original* live page in
-  a clean tab reproduces the variant; sim shows COM-prior → bandit handoff on synthetic
-  traffic.
+- **M8 — structure ops** (§4.7). *Pass:* "add a social-proof section after the hero" on a page
+  with a donor pattern → new section inherits classes, passes a11y fill rules, verified by M7.
+- **M9 — bandit sim** (§4.7). *Pass:* sim renders COM prior as starting weights → synthetic
+  traffic → posterior visibly converging; labeled synthetic everywhere.
 
 ## 8. Cuts + honest limits (say these out loud)
 Cut from MVP, deliberately: Claude-subscription auth (API key instead) · inline/manual editing
 (agent edits + approve only) · multi-variant tabs (one variant vs control) · pre-flight report
 (plain error messages instead) · BrandProfile extraction (tone/lang live in the brief) ·
-card/collection mining (M7) · screenshots + viewport checks (M6) · MutationObserver re-apply
-(static-page scope; hydrated sites may wipe patches — we say so) · export snippet (M8) ·
-eval suites (M5, first post-MVP). NOT cut: site memory — it's M4, inside the MVP, because
+card/collection mining (M8) · screenshots + viewport checks (M7) · MutationObserver re-apply
+(static-page scope; hydrated sites may wipe patches — we say so) · 
+eval suites (M6, first post-MVP). NOT cut: site memory — it's M4, inside the MVP, because
 without it the demo resets on every refresh.
 Standing limits: heuristic extraction misclassifies on messy sites; client-side apply only (no
 SSR/SEO); proxy won't beat bot walls or auth walls; COM is a prior, not conversion data.

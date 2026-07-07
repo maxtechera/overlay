@@ -151,10 +151,15 @@ export const makeTools = (deps: { send: SendToIframe; stores: Stores }) => ({
     inputSchema: z.object({ opId: z.string() }),
     execute: async ({ opId }) => deps.send({ t: "revert-op", opId }),
   }),
+  create_variant: tool({
+    description: "Save a recommendation as a new named variant and make it active. Use one variant per distinct angle/hypothesis.",
+    inputSchema: z.object({ name: z.string().max(60), goal: z.string().optional() }),
+    execute: async ({ name, goal }) => deps.stores.variants.create(name, goal),  // { variantId }
+  }),
   score_variant: tool({
-    description: "Independent conversion rating of the current variant vs control.",
+    description: "Independent conversion rating of the ACTIVE variant vs control.",
     inputSchema: z.object({}),
-    execute: async () => scoreVariant(deps.stores.snapshotForScoring()),   // §7
+    execute: async () => scoreVariant(deps.stores.snapshotForScoring()),   // §7, active variant
   }),
 });
 ```
@@ -326,7 +331,9 @@ must be grounded in what the page actually says; write "unknown" rather than inv
 session:  { url; status: "idle"|"ingesting"|"extracting"|"ready"|"error"; error?;
             brief: PageBrief | null; goal: string; setGoal; patchBrief }
 schema:   { nodes: Record<string, PageNode>; order: string[]; outline(); node(id) }
-variant:  { ops: VariantOp[]; active: "control" | "variant"; score?: ComScore }
+variants: { list: Variant[]; activeId: "control" | string; create(name, goal?);
+            setActive(id) }      // setActive = revert all applied ops → replay target's list;
+                                 // ops always store prevSlots vs CONTROL, so replay is exact
 chat:     { blocks: ChatBlock[]; messages: ModelMessage[]; streaming: boolean;
             pushUser; appendText; openTool; closeTool; pushError;
             commitTurn(userMsg, responseMsgs) }   // appends user + assistant/tool to messages
@@ -377,7 +384,7 @@ cosmetic. Hard part #1's remaining unknown is only the *AI-loop* spike (step 0),
                                 # { schema: { nodes: PageNode[], extractedAt },  // snapshot
                                 #   seo: PageBrief["seo"],
                                 #   brief: PageBrief, goal: string,
-                                #   ops: VariantOp[], scores: ComScore[],
+                                #   variants: Variant[],          // ALL saved variants w/ scores
                                 #   verdicts: { opId, approved, reason?, at }[] }
 ```
 
@@ -442,7 +449,7 @@ targets).
 
 Rules: dependency-free IIFE, <2 KB unminified target; re-find uses `SelectorRef` + fingerprint
 against the ORIGINAL page (valid there — TECH-SPEC hard part #5); `update-content` slots only in
-MVP (text/href/src/alt). The Export block in chat offers: **Copy `<script>` tag** ·
+MVP (text/href/src/alt). The Export block in chat offers: **a variant picker** (any saved variant; KEY embeds its id so concurrent tests don’t collide) · **Copy `<script>` tag** ·
 **Copy console version** (same code, bucket forced to `variant`) · a one-paragraph doc note on
 reading `window.__overlayVariant` / `data-overlay-variant` from GA4/PostHog and on edge
 injection (rewrite `</body>` in a CF Worker / Vercel Edge Middleware — same snippet, no extra

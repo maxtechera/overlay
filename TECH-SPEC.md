@@ -154,8 +154,9 @@ export const makeTools = (deps: { send: SendToIframe; stores: Stores }) => ({
   create_variant: tool({
     description: "Save a recommendation as a new named variant and make it active. Use one variant per distinct angle/hypothesis. Optionally aim it at a brief segment.",
     inputSchema: z.object({ name: z.string().max(60), goal: z.string().optional(),
-                            segment: z.string().optional() }),
-    execute: async ({ name, goal, segment }) => deps.stores.variants.create(name, goal, segment),
+                            segment: z.string().optional(),
+                            experimentId: z.string().optional() }),   // arm of a plan experiment
+    execute: async (a) => deps.stores.variants.create(a.name, a.goal, a.segment, a.experimentId),
   }),
   score_variant: tool({
     description: "Independent conversion rating of the ACTIVE variant vs control.",
@@ -309,6 +310,9 @@ Rules:
 - Respect node facts as constraints: keep line counts (a 2-line headline stays ≤2 lines), never
   degrade contrast or accessibility. ADA findings in the brief are variant opportunities —
   propose fixes.
+- The Experiment Plan is your backlog. When asked to build an experiment, create its arms with
+  create_variant(experimentId), target ONLY that experiment's component, and tie every op's
+  rationale to its hypothesis.
 - After changing the variant, call score_variant and report the delta honestly — including when
   it is negative.
 - Never claim a change is applied unless the tool result said applied: true.
@@ -324,6 +328,15 @@ BRIEF_PROMPT (M2, generateObject with the PageBrief schema, haiku):
 Compose a conversion brief for this page from its extracted content and SEO data. Every field
 must be grounded in what the page actually says; write "unknown" rather than inventing. Input:
 {seo + all text slots by path}
+
+PLAN_PROMPT (M2, generateObject → Experiment[] minus status/armIds, haiku, runs after the brief):
+Propose 6-10 conversion experiments for this page. Each: name = "<Component> — <Change idea>"
+(practitioner style), targetPath = one of the provided component paths EXACTLY (never invent),
+hypothesis = 1-3 sentences tying the change to the brief (ICP, missed pain point, unhandled
+objection, proof gap, or an ADA finding). Prefer diverse components over 10 hero ideas. Input:
+{brief + component outline (paths, types, previews)}
+App-side validation: drop any proposal whose targetPath is not in the schema; if <6 survive,
+re-run once with the dropped names listed as "invalid".
 ```
 
 ## 9. Stores — `lib/store.ts` (zustand, exact shapes)
@@ -332,7 +345,8 @@ must be grounded in what the page actually says; write "unknown" rather than inv
 session:  { url; status: "idle"|"ingesting"|"extracting"|"ready"|"error"; error?;
             brief: PageBrief | null; goal: string; setGoal; patchBrief }
 schema:   { nodes: Record<string, PageNode>; order: string[]; outline(); node(id) }
-variants: { list: Variant[]; activeId: "control" | string; create(name, goal?, segment?);
+experiments: { list: Experiment[]; setStatus(id, status) }   // plan cards; persisted w/ state
+variants: { list: Variant[]; activeId: "control" | string; create(name, goal?, segment?, experimentId?);
             setActive(id) }      // setActive = revert all applied ops → replay target's list;
                                  // ops always store prevSlots vs CONTROL, so replay is exact
 // Thumbnails (M3, best-effort): parent runs html2canvas against iframe.contentDocument.body
@@ -348,6 +362,7 @@ type ChatBlock =
   | { kind: "tool"; toolCallId: string; name: string; input: unknown; output?: unknown }
   | { kind: "proposal"; opId: string; op: Op; score?: ComScore;
       status: "pending" | "approved" | "rejected" }
+  | { kind: "plan" }                             // ExperimentPlan cards from experiments store
   | { kind: "gallery" }                          // renders from the variants store; no payload
   | { kind: "brief" } | { kind: "error"; text: string };
 ```
@@ -390,6 +405,7 @@ cosmetic. Hard part #1's remaining unknown is only the *AI-loop* spike (step 0),
                                 # { schema: { nodes: PageNode[], extractedAt },  // snapshot
                                 #   seo: PageBrief["seo"],
                                 #   brief: PageBrief, goal: string,
+                                #   experiments: Experiment[],    // the plan + statuses
                                 #   variants: Variant[],          // ALL saved variants w/ scores
                                 #   verdicts: { opId, approved, reason?, at }[] }
 ```
@@ -437,22 +453,23 @@ targets).
 <script>
 /* overlay A/B — generated {no timestamps in the generator: use the variant id} */
 (function () {
-  var OPS = [/* the variant's applied ops, JSON: {target: SelectorRef, slots} */];
-  var KEY = "overlay-ab-<variantId>";
+  var KEY = "overlay-ab-<experimentId|variantId>";
   var MODE = "ab";                    // or "segment", with SIGNAL = {param,value}|{device}|{referrer}
-  var bucket;
+  var ARMS = [ {id:"control",w:0.25,ops:[]} /*, {id:"v1",w:0.30,ops:[...]}, ... */ ];  // weighted
+  var bucket;                          // = an arm id
   if (MODE === "segment") {
-    bucket = /* signal matches? */ "variant" /* else */ ;   // deterministic rule, no persistence needed
+    bucket = /* signal matches? */ ARMS[1].id /* else "control" */;
   } else {
-    bucket = localStorage.getItem(KEY) ||
-      (localStorage.setItem(KEY, Math.random() < 0.5 ? "control" : "variant"),
-       localStorage.getItem(KEY));
+    bucket = localStorage.getItem(KEY) || (function(){ var r=Math.random(),acc=0;
+      for (var a of ARMS){acc+=a.w; if(r<acc) return a.id;} return "control"; })();
+    localStorage.setItem(KEY, bucket);
   }
   if (location.hash === "#overlay-force-variant") bucket = "variant";   // console/demo path
   window.__overlayVariant = bucket;
   document.documentElement.setAttribute("data-overlay-variant", bucket);
-  if (bucket !== "variant") return;
-  OPS.forEach(function (op) { /* re-find: querySelector(css) + normalized-fingerprint check;
+  var arm = ARMS.find(function(a){return a.id===bucket;});
+  if (!arm || !arm.ops.length) return;
+  arm.ops.forEach(function (op) { /* re-find: querySelector(css) + normalized-fingerprint check;
     mismatch → console.warn("[overlay] drop " + op.target.css) and skip — NEVER guess.
     Apply on DOMContentLoaded if document is still loading. */ });
 })();

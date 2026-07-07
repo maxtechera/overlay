@@ -57,7 +57,9 @@ Surface = **chat (left) + live preview (right)**.
 1. **First message is the URL.** The agent's first turn ingests the page (proxy → iframe, §4.1),
    runs extraction (§4.2), and replies with the **Page Brief artifact**: SEO basics, component
    outline, ICP, problem statement, pain points, objections, proof/CTA audit, suggested goals.
-   Saved, human-editable, pinned into context for every later turn.
+   Saved, human-editable, pinned into context for every later turn. Alongside it: the
+   **Experiment Plan** (§4.5) — 6–10 named, component-targeted experiment proposals with
+   hypotheses, rendered as actionable cards.
 2. Every extracted block is **addressable**: stable id + selector + human path (`hero.headline`).
    Ops can target any level — text in a card, a button's label+href, a whole section.
 3. The preview shows a labeled **overlay** and **variant tabs: Control · A · B · (+)**. A
@@ -70,10 +72,10 @@ Surface = **chat (left) + live preview (right)**.
    multiple variants the agent renders the **variant gallery inline in the chat** — one card
    per variant (thumbnail, COM delta, segment tag), click to switch the preview; also available
    any time by asking.
-5. Everything learned persists to **site memory** (§4.5): verdicts, the brief, learnings the
+5. Everything learned persists to **site memory** (§4.6): verdicts, the brief, learnings the
    agent chooses to keep. **Reopening the same URL resumes the project** — brief loads from
    disk, the agent picks up where it left off.
-6. **Export (§4.6): pick a variant and it leaves the tool as a deployable A/B script** —
+6. **Export (§4.7): pick a variant and it leaves the tool as a deployable A/B script** —
    copy/paste it into your site (or inject it at the edge): it buckets visitors 50/50, applies
    that variant's ops for the test group, and exposes the assignment for your analytics. The
    full arc ends with something you can actually run as an experiment.
@@ -94,9 +96,13 @@ component, end-to-end through every layer.
 - **Rich chat**: tool calls displayed live, and components / proposals / variants / the brief
   render as interactive inline blocks (§4.3) — the user drives by clicking *and* chatting, in
   both directions (click in preview → reference in chat; click in chat → highlight in preview).
-- **Multiple saved variants, compared**: agent recommendations persist as named variants;
-  switch between Control/A/B/C live in the preview; rank them by COM delta.
-- **Any variant is exportable as a runnable A/B script** (§4.6): paste into the real site (or
+- **An actionable Experiment Plan**: 6–10 named, component-targeted proposals with hypotheses;
+  each card's "Build arms" turns a proposal into live variants — a plan that executes, not a
+  mock.
+- **Multiple saved variants, compared**: arms persist as named variants grouped by experiment;
+  switch between Control/A/B/C live in the preview; rank by COM delta with a prior-labeled
+  suggested allocation (C 25% fixed, rest ∝ deltas).
+- **Any variant is exportable as a runnable A/B script** (§4.7): paste into the real site (or
   edge-inject), visitors get bucketed, the test group gets the variant. The MVP's output is an
   experiment, not a mockup.
 
@@ -201,7 +207,7 @@ Tools (each ~10 lines: zod schema + `sendToIframe` or store lookup):
 | `revert_op` | iframe | undo an applied op |
 | `create_variant` (M3) | variant store | save a recommendation as a named variant + activate it |
 | `score_variant` | COM (§4.4) | rate the active variant — proposals return pre-scored |
-| `save_memory` (M4) | memory API (§4.5) | replace the site memory doc with durable learnings |
+| `save_memory` (M4) | memory API (§4.6) | replace the site memory doc with durable learnings |
 
 Context strategy: system prompt + Page Brief + component *outline*; the agent reads full nodes on
 demand (explores like Claude Code explores a repo — never receives the whole DOM). Human-in-the-
@@ -216,7 +222,8 @@ loop is just `apply_op`'s execute awaiting an approval promise the ProposalCard 
 | `BriefArtifact` | first turn | fields editable in place; edits update pinned context |
 | `ComponentCard` | agent mentions/reads a component | click → highlight + scroll it in the preview; "ask about this" seeds the composer |
 | `ProposalCard` | agent proposes an op | before/after slot diff + COM score badge + reasons; **Approve / Reject** buttons resolve `apply_op` |
-| `VariantGallery` | agent renders it inline after saving variants; also on request | card per saved variant: best-effort thumbnail, COM delta, segment tag; click → switch preview |
+| `ExperimentPlan` | first turn, after the brief; also on request | card per proposal (name · target · hypothesis · status); **Build arms** directs the agent at that experiment |
+| `VariantGallery` | agent renders it inline after saving variants; also on request | arms grouped by experiment: best-effort thumbnail, COM delta, segment tag, suggested allocation (prior-labeled); click → switch preview |
 
 Mechanism (thin, from the SDK): the loop streams typed message parts (text, tool call, tool
 result); `MessageList` is a switch from part type → block component — no bespoke protocol.
@@ -235,7 +242,28 @@ prior, not conversion data**; real ranking is bandits over live users (out of sc
 the handoff). Swappable by design — `variant in → score out` is where a trained model slots in
 later, and every `(brief, op, score, human verdict)` is logged as its future training data.
 
-### 4.5 Site memory (M4, in the MVP) — a CLAUDE.md for the website
+### 4.5 The Experiment Plan (M2 proposes it, M3 makes it actionable)
+The brief answers "what is this page and who is it for"; the **Experiment Plan** answers "what
+would we test." A second structured call over brief + component outline produces **6–10
+experiment proposals**, each one:
+
+- **Named the way practitioners name tests:** `"<Component> — <Change idea>"` ("Hero —
+  Audience-Routing Tabs Replace Static Subheadline").
+- **Targeted:** a real extracted component path — never a component we didn't find.
+- **Hypothesized:** 1–3 sentences tying the change to the brief (ICP, missed pain point,
+  unhandled objection, proof gap, ADA finding).
+
+Rendered as an **ExperimentPlan chat block**: a card per proposal with a **Build arms** action.
+Clicking it directs the agent ("build experiment exp-3") → it creates 1–2 named variants (arms)
+aimed at that experiment's target, scores them, and renders the gallery grouped by experiment.
+Each built experiment shows a **suggested traffic allocation** (control fixed at 25%; the
+remaining 75% split proportional to the arms' COM deltas) — **labeled as a COM-prior
+suggestion**: a real bandit reallocates with live traffic (M9 simulates it; M10 makes it real).
+Status flows `proposed → building → ready → exported`, persisted in site memory like everything
+else. This is the difference between showing a plan and shipping one: every card ends in a
+live preview and an exportable script.
+
+### 4.6 Site memory (M4, in the MVP) — a CLAUDE.md for the website
 **Working memory (already here):** the messages array, the Page Brief pinned via the
 rebuilt-per-turn system prompt, schema + op stores. Context-by-exploration is the discipline.
 
@@ -278,7 +306,7 @@ last session") instead of silently trusted.
    replayable — after any prompt change, check whether the COM agrees with past human verdicts
    more or less.
 
-### 4.6 Export (M5, in the MVP) — the variant as a deployable A/B script
+### 4.7 Export (M5, in the MVP) — the variant as a deployable A/B script
 The arc must end in something you can run. **Export** produces one self-contained snippet:
 
 - **Contents:** the variant's ops (JSON) + a small standalone applier (IIFE, dependency-free,
@@ -300,7 +328,7 @@ The arc must end in something you can run. **Export** produces one self-containe
   page applies the variant immediately (forced `variant` bucket) — the acceptance test and the
   quickest demo of "this leaves the tool."
 
-### 4.7 Post-MVP mechanisms (specified so we don't improvise later)
+### 4.8 Post-MVP mechanisms (specified so we don't improvise later)
 - **Verify loop (M7):** after apply → overflow/clipping + layout-shift + WCAG contrast checks in
   the runtime; failures return to the agent → revise → retry (max 2) → proof note on the op. No
   unverified op reaches `applied` once this ships.
@@ -357,8 +385,19 @@ type Op = { op: "update-content"; target: string /* node id */;
 interface VariantOp { id: string; source: "human" | "agent"; op: Op;
                       status: "pending" | "applied" | "rejected" | "failed"; }
 
+interface Experiment {
+  id: string;
+  name: string;                   // "<Component> — <Change idea>" — practitioner naming
+  targetPath: string;             // must be a real extracted component path
+  hypothesis: string;             // grounded in the brief (ICP/pain/objection/proof/ADA)
+  status: "proposed" | "building" | "ready" | "exported";
+  armIds: string[];               // variant ids; control is implicit
+  suggestedAllocation?: Record<string, number>;  // COM-PRIOR suggestion: control 25% fixed,
+}                                                //  75% ∝ arm deltas; a bandit owns the real one
+
 interface Variant { id: string; name: string;   // "Pain-point hero" — agent- or human-named
                     goal: string; segment?: string; // aimed at a brief segment (B/personalization)
+                    experimentId?: string;          // this variant is an ARM of an experiment
                     ops: VariantOp[]; score?: ComScore }
 // The app holds Variant[] + activeId ("control" | variant id). Ops always record prevSlots
 // vs CONTROL; switching tabs = revert all applied ops → replay the selected variant's list.
@@ -422,12 +461,14 @@ same-day).
   no hang.
 - **M2 — full extraction + overlay + Page Brief.** *Deliverable:* whole-page detection ladder,
   labeled overlay with `via` tags, paths, **node facts + ADA audit** (§4.2), editable brief
-  artifact, goal chips, two-way click↔chat wiring. *Pass:* on all 3 test sites — overlay
+  artifact, goal chips, **Experiment Plan block** (6–10 proposals, every target a real extracted
+  path, every hypothesis grounded in the brief), two-way click↔chat wiring. *Pass:* on all 3 test sites — overlay
   identifies hero + ≥3 sections + cards where they exist; `ComponentCard`/overlay show computed
   facts (lines · fontPx · contrast) that spot-check TRUE against devtools; the brief renders
   with every field grounded (no invented claims on spot check) including an ADA findings list
   derived from facts and 2–3 segments each with a detectable signal; click a preview component → reference chip appears; edit the ICP field →
-  next agent turn reflects the edit.
+  next agent turn reflects the edit; the plan renders with ≥6 proposals and zero targets that
+  don't exist in the schema.
 - **M3 — variants + COM.** *Deliverable:* **multiple named variants** — `create_variant` tool,
   variant tabs (Control · A · B · +), switching reverts to control and replays the selected op
   list; per-op revert; `score_variant` wired, proposals pre-scored; a ranked **variant
@@ -436,19 +477,23 @@ same-day).
   after every apply, the runtime re-computes the target's facts and flags regressions on the
   op: overflow, line-count growth, contrast below WCAG AA, lost alt (no retries, no
   screenshots — the full verify loop stays M7; this is the honesty layer that protects the MVP
-  demo). *Pass:* ask for "three different hero angles" on `posthog.com` — the agent creates 3
-  named variants, each with pre-scored proposals whose reasons reference the brief; clicking
-  tabs visibly switches the page between Control/A/B/C; the comparison ranks them by delta; an
+  demo). *Pass:* on `posthog.com`, click **Build arms** on one plan card — the agent creates 2 named
+  arms for THAT experiment's target, pre-scored, reasons referencing the hypothesis; the
+  gallery groups them under the experiment with a prior-labeled suggested allocation; clicking
+  tabs visibly switches the page between Control/A/B/C; ask for "three different hero angles" —
+  3 more variants; an
   obviously-worse variant (ask for "vague and generic") scores a negative delta; an op with a
   3×-length headline gets the overflow + line-growth warning on its card.
-- **M4 — site memory.** *Deliverable:* memory API + `.memory/<hostname>/` (persisting ALL variants),
+- **M4 — site memory** (§4.6)**.** *Deliverable:* memory API + `.memory/<hostname>/` (persisting ALL variants),
   `save_memory` tool, memory in context, resume + stale-diff. *Pass:* reject a proposal with a
   reason → next proposal respects it → **quit the browser, reopen, same URL** → brief loads
   from disk without an LLM call, the agent's greeting references the learning, and
   `.memory/<hostname>/memory.md` contains it.
 
-- **M5 — export (MVP closes here).** *Deliverable:* the variant as a deployable A/B script
-  (§4.6): per-variant picker → ops JSON + standalone applier with 50/50 bucketing, assignment exposed for analytics.
+- **M5 — export (MVP closes here).** *Deliverable:* an experiment (or single variant) as a
+  deployable **multi-arm** A/B script — arms weighted by the suggested allocation (or equal),
+  arm assignment exposed —
+  (§4.7): per-experiment/variant picker → ops JSON + standalone applier with 50/50 bucketing, assignment exposed for analytics.
   *Pass:* pick any saved variant in the Export block; paste the exported snippet into the browser console on the ORIGINAL live page (clean
   tab, no app) → variant applies (forced bucket); as a `<script>` tag → visitors bucket 50/50
   and `window.__overlayVariant` reads correctly; a segment-mode export applies ONLY when its
@@ -463,19 +508,20 @@ detectable hero, both answered honestly in chat. **Record the best full run as a
 the demo insurance and the proof artifact. MVP is "complete" only when this gate passes on all
 three sites without touching code between runs.
 
-- **M6 — evals** (§4.5). *Pass:* `pnpm eval` runs extraction smoke tests on saved fixtures +
+- **M6 — evals** (§4.6). *Pass:* `pnpm eval` runs extraction smoke tests on saved fixtures +
   the 6-case COM sanity suite, exit 0; a deliberately broken fixture fails it.
-- **M7 — verify loop** (§4.7). *Pass:* an op that overflows its container gets auto-revised or
+- **M7 — verify loop** (§4.8). *Pass:* an op that overflows its container gets auto-revised or
   surfaced as "needs human," with the check results attached.
-- **M8 — structure ops** (§4.7). *Pass:* "add a social-proof section after the hero" on a page
+- **M8 — structure ops** (§4.8). *Pass:* "add a social-proof section after the hero" on a page
   with a donor pattern → new section inherits classes, passes a11y fill rules, verified by M7.
-- **M9 — bandit sim** (§4.7). *Pass:* sim renders COM prior as starting weights → synthetic
+- **M9 — bandit sim** (§4.8). *Pass:* sim renders COM prior as starting weights → synthetic
   traffic → posterior visibly converging; labeled synthetic everywhere.
 
 ## 8. Cuts + honest limits (say these out loud)
 Cut from MVP, deliberately: Claude-subscription auth (API key instead) · inline/manual editing
 (agent edits + approve only) · side-by-side simultaneous preview (variants compare by switching
-tabs + the ranked view, not split-screen iframes) · pre-flight report
+tabs + the ranked view, not split-screen iframes) · experiment timeline/scheduling view (the
+plan is a list of actionable cards; calendars are M10 territory) · pre-flight report
 (plain error messages instead) · BrandProfile extraction (tone/lang live in the brief) ·
 card/collection mining (M8) · screenshots + viewport checks (M7) · MutationObserver re-apply
 (static-page scope; hydrated sites may wipe patches — we say so) · 

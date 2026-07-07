@@ -45,6 +45,13 @@ fix it or challenge this glossary in a PR.
 - **Warn-only regression checks (M3)** — post-apply fact re-computation: overflow, line growth,
   contrast < AA, lost alt → `warnings` on `op-applied`. Warns, never blocks; the blocking
   **verify loop** is M7.
+- **Experiment** — a named, component-targeted test proposal ("<Component> — <Change idea>")
+  with a brief-grounded hypothesis; its **arms** are variants (`experimentId`), control
+  implicit. Status: proposed → building → ready → exported.
+- **Experiment Plan** — the agent's backlog: 6–10 proposals rendered as actionable cards
+  ("Build arms"). Every targetPath must exist in the schema — validated app-side.
+- **Suggested allocation** — COM-PRIOR traffic split shown on built experiments (control 25%
+  fixed, 75% ∝ arm deltas). A suggestion, never a measurement; the real bandit is M9/M10.
 - **Segment** — one of 2–3 audiences the brief identifies, each with a *detectable* signal
   (UTM/query param, referrer, device class). A variant may be aimed at a segment.
 - **Variant gallery** — the comparison surface: one card per saved variant (best-effort

@@ -103,7 +103,8 @@ type ParentMsg =
 type RuntimeMsg =
   | { t: "ready" }
   | { t: "schema"; nodes: PageNode[]; seo: PageBrief["seo"] }
-  | { t: "op-applied"; opId: string; ok: boolean; error?: string }
+  | { t: "op-applied"; opId: string; ok: boolean; error?: string;
+      warnings?: string[] }                        // M3+: e.g. "overflow: scrollW 812 > clientW 640"
   | { t: "op-wiped"; opId: string }                 // unsolicited, no requestId
   | { t: "op-reverted"; opId: string }
   | { t: "selected"; nodeId: string };              // unsolicited
@@ -234,8 +235,12 @@ per node, `z-index: 2147483646`. Recompute on `resize` only (absolute coords scr
 
 **apply-op:** element from the map (absent → `{ ok: false, error: "refind-failed" }`); per slot
 set `textContent` / `href` / `src`+`alt`; store `{ opId, el, prevSlots }` for revert. Never touch
-classes or structure. **Wipe detection:** 1 s after apply, if `el.isConnected === false` or
-textContent ≠ applied value → post `op-wiped` (unsolicited). **revert-op:** restore `prevSlots`.
+classes or structure. **Overflow warn (M3, warn-only):** after apply, if `scrollWidth >
+clientWidth` or `scrollHeight > clientHeight` grew on the target or its parent vs pre-apply →
+include a `warnings` entry in `op-applied`; UI shows it on the op's card; the agent sees it in
+the tool result. No retries, no blocking — the full verify loop is M7. **Wipe detection:** 1 s
+after apply, if `el.isConnected === false` or textContent ≠ applied value → post `op-wiped`
+(unsolicited). **revert-op:** restore `prevSlots`.
 
 ## 7. COM — `lib/com.ts` (isolation rule: imports NOTHING from agent.ts or stores)
 

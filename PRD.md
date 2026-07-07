@@ -376,10 +376,14 @@ same-day).
   check); click a preview component → reference chip appears; edit the ICP field → next agent
   turn reflects the edit.
 - **M3 — variants + COM.** *Deliverable:* op list vs control with toggle + revert,
-  `score_variant` wired, proposals pre-scored. *Pass:* ask for 3 hero variants on
+  `score_variant` wired, proposals pre-scored, and a **warn-only overflow check** — after every
+  apply, the runtime compares scrollWidth/Height vs client box on the target and flags
+  "overflows its container" on the op (no retries, no screenshots — the full verify loop stays
+  M7; this is the honesty layer that protects the MVP demo). *Pass:* ask for 3 hero variants on
   `posthog.com` — each proposal card shows control/variant/delta + reasons referencing the
   brief; toggle control↔variant flips the page; an obviously-worse variant (ask the agent to
-  "make the headline vague and generic") scores a negative delta.
+  "make the headline vague and generic") scores a negative delta; an op with a 3×-length
+  headline gets the overflow warning on its card.
 - **M4 — site memory.** *Deliverable:* memory API + `.memory/<hostname>/`,
   `save_memory` tool, memory in context, resume + stale-diff. *Pass:* reject a proposal with a
   reason → next proposal respects it → **quit the browser, reopen, same URL** → brief loads

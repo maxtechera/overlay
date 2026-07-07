@@ -448,7 +448,23 @@ reading `window.__overlayVariant` / `data-overlay-variant` from GA4/PostHog and 
 injection (rewrite `</body>` in a CF Worker / Vercel Edge Middleware — same snippet, no extra
 code). We never measure conversions ourselves.
 
-## 13. Done-when (maps to PRD acceptance)
+## 13. Password gate (public deployment)
+
+The app deploys publicly behind a **shared password**. ~30 lines, no library:
+
+- `APP_PASSWORD` env (Vercel). **Unset → gate disabled** (local dev unchanged).
+- `POST /api/auth { password }` → constant-time compare → sets httpOnly, secure, SameSite=Lax
+  cookie `overlay-auth` = hex(SHA-256(APP_PASSWORD + "overlay-v1")). 401 otherwise.
+- A shared `requireAuth(req)` guard at the top of EVERY other `app/api/**` route: recompute the
+  hash, compare to the cookie, 401 on mismatch. The key never leaves the server either way.
+- Client: on any 401, show a single password field over the app; on success, reload state.
+- The **exported snippet is exempt by design** — self-contained, zero API calls, runs on
+  third-party sites. (M10's dynamic serving route will need its own public story — noted in
+  #11, not solved now.)
+- Keep the failed-attempt log line; no rate limiting beyond Vercel defaults for now (shared
+  password + no key exposure keeps blast radius at "they can chat on our dime once inside").
+
+## 14. Done-when (maps to PRD acceptance)
 
 - ~~Step 0 spike~~ **GREEN 2026-07-07** (`scripts/step0-spike.mjs`): 2-step tool loop
   (tool-call → tool-result → tool-call → tool-result → text) streamed through the byte-level

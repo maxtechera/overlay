@@ -372,7 +372,7 @@ Next.js 15 (App Router) · TypeScript strict · React 19 · `ai@6` + `@ai-sdk/an
 `node-html-parser` · `nanoid` · **UI: Tailwind v4 + shadcn/ui + Vercel AI Elements** (researched
 decision, see below) — dark theme, orange accent via CSS variables. Dev-only: `esbuild` (bundles
 `lib/runtime.ts` to the injectable string). **No other libraries.**
-Local-first (`pnpm dev`); deploys to Vercel as-is. Env: `ANTHROPIC_API_KEY` only.
+Runs locally (`pnpm dev`, no gate) and deploys to Vercel **behind the password gate** (TECH-SPEC §13). Env: `ANTHROPIC_API_KEY` + `APP_PASSWORD` (deployment only).
 
 **UI kit decision (low-effort path to the §4.3 chat contract):** [AI Elements]
 (https://github.com/vercel/ai-elements) is Vercel's own shadcn-based registry of AI chat
@@ -461,8 +461,10 @@ eval suites (M6, first post-MVP). NOT cut: site memory — it's M4, inside the M
 without it the demo resets on every refresh.
 Standing limits: heuristic extraction misclassifies on messy sites; client-side apply only (no
 SSR/SEO); proxy won't beat bot walls or auth walls; COM is a prior, not conversion data.
-**Local-first:** the MVP is not deployed publicly — deployed, the key proxy and ingest route are
-open to abuse; a public demo is a future issue with auth + rate limits in front of both.
+**Deployment:** public, but **password-gated** — a shared password (`APP_PASSWORD`) unlocks an
+httpOnly cookie that every API route requires (un-gated, the key proxy and ingest route are open
+to abuse). The exported snippet is unaffected — it's self-contained and calls no APIs. Locally,
+no password set = no gate.
 
 ## 9. Why this shape (positioning)
 - **Any site, no CMS** → proxy+inject = the "one script you install" deployment model that

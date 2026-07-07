@@ -11,8 +11,8 @@ contract; read it fully before touching anything.
 3. This file — team workflow + durable learnings.
 
 ## Shared context & memory (how a team of agents stays coherent)
-- **Shared context** = this repo: PRD.md (the unified vision — every milestone in §7 maps 1:1
-  to a GitHub issue), TECH-SPEC.md (contracts), this file (workflow + learnings). Read all
+- **Shared context** = this repo: PRD.md (the unified vision — every §7 milestone maps to a
+  small set of fine-grained issues), TECH-SPEC.md (contracts), this file (workflow + learnings). Read all
   three before working; never rely on private context another agent can't see.
 - **Shared memory** = two layers: durable → the Learnings section below (one line per gotcha,
   added in the PR that hit it); situational → issue/PR comments (searchable by every agent).

@@ -20,9 +20,11 @@ listed in §8 so we can say it out loud instead of getting caught by it.
 > - **How to build:** follow §10's build order, one commit per step; code contracts live in
 >   **TECH-SPEC.md** (follow its §0 pins exactly — the version traps in it were hit for real).
 >   A milestone is done when its §7 pass runs green, not when code exists.
-> - **Sequencing is by dependency, not dates:** M1 → M2 → M3 → M4 → M5 → MVP gate (#5), strictly in
->   order (each pass builds on the previous). After M5, the tail fans out: M6 (evals) · M7
->   (verify) · M9 (bandit sim) are independent of each other; M8 (structure) depends on M7.
+> - **Sequencing is by dependency, not dates — with parallel lanes:** #1 (foundation, no AI)
+>   first; then #13 (agent tick) ∥ #2 (deep extraction) in parallel; #15 (COM module) is
+>   parallel-safe from day one. Then #14 (artifacts+controls) → #3 (variants+gallery) → #4
+>   (memory) → #10 (export) → gate #5. Post-gate: #6 (evals) + #9 (bandit sim) first, then
+>   #7 (verify) → #8 (structure); #12 (deploy gate) any time after #13.
 
 ---
 

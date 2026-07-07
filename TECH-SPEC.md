@@ -390,7 +390,39 @@ and user see it rather than trust it. First reply acknowledges the resume ("Back
 the op list shows "from last session" with a re-apply action (valid only for non-stale
 targets).
 
-## 12. Done-when (maps to PRD acceptance)
+## 12. Export (M5, in the MVP) — the variant as a deployable A/B script
+
+`lib/export.ts` builds one self-contained snippet from the active variant:
+
+```
+<script>
+/* overlay A/B — generated {no timestamps in the generator: use the variant id} */
+(function () {
+  var OPS = [/* the variant's applied ops, JSON: {target: SelectorRef, slots} */];
+  var KEY = "overlay-ab-<variantId>";
+  var bucket = localStorage.getItem(KEY) ||
+    (localStorage.setItem(KEY, Math.random() < 0.5 ? "control" : "variant"),
+     localStorage.getItem(KEY));
+  if (location.hash === "#overlay-force-variant") bucket = "variant";   // console/demo path
+  window.__overlayVariant = bucket;
+  document.documentElement.setAttribute("data-overlay-variant", bucket);
+  if (bucket !== "variant") return;
+  OPS.forEach(function (op) { /* re-find: querySelector(css) + normalized-fingerprint check;
+    mismatch → console.warn("[overlay] drop " + op.target.css) and skip — NEVER guess.
+    Apply on DOMContentLoaded if document is still loading. */ });
+})();
+</script>
+```
+
+Rules: dependency-free IIFE, <2 KB unminified target; re-find uses `SelectorRef` + fingerprint
+against the ORIGINAL page (valid there — TECH-SPEC hard part #5); `update-content` slots only in
+MVP (text/href/src/alt). The Export block in chat offers: **Copy `<script>` tag** ·
+**Copy console version** (same code, bucket forced to `variant`) · a one-paragraph doc note on
+reading `window.__overlayVariant` / `data-overlay-variant` from GA4/PostHog and on edge
+injection (rewrite `</body>` in a CF Worker / Vercel Edge Middleware — same snippet, no extra
+code). We never measure conversions ourselves.
+
+## 13. Done-when (maps to PRD acceptance)
 
 - ~~Step 0 spike~~ **GREEN 2026-07-07** (`scripts/step0-spike.mjs`): 2-step tool loop
   (tool-call → tool-result → tool-call → tool-result → text) streamed through the byte-level
@@ -402,3 +434,7 @@ targets).
 - M4: reject a proposal with a reason → next proposal respects it → close tab, reopen, same URL
   → brief loads from disk, agent references the learning, `.memory/<site>/memory.md` is a real
   file you can open on screen.
+- M5: exported snippet pasted in the console on the ORIGINAL live page (with
+  `#overlay-force-variant`) applies the variant; as a script tag, visitors bucket 50/50 and
+  `window.__overlayVariant` + `data-overlay-variant` read correctly; fingerprint mismatch →
+  warn + skip, never guess.

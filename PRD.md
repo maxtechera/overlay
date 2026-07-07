@@ -275,6 +275,14 @@ The arc must end in something you can run. **Export** produces one self-containe
   hierarchy, alt, focusable CTAs). Squeezes the parameter space; on-brand by construction.
 - **Bandit sim (M9):** Thompson-sampling simulation over synthetic traffic showing how the COM
   prior seeds a bandit that then learns from (synthetic) conversions.
+- **Variant server + autonomous loop (M10, north star):** saved variants (already in site
+  memory) get **served dynamically** — `/api/serve/<site>.js` returns the same applier with ops
+  fetched from the store, so a site installs ONE static script tag and variants update without
+  re-pasting. On top: autonomous mode — the agent **generates variants on its own** (anchored
+  to brief + memory), the COM pre-filters which deserve traffic, bucketing assigns visitors,
+  and conversion signal feeds the bandit (M9's sim, made real). Deliberately enabled by M5's
+  design: the static snippet and the served script are the same mechanism — the north star is
+  a serving change, not a rewrite.
 
 ---
 

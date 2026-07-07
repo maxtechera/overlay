@@ -35,8 +35,9 @@ fix it or challenge this glossary in a PR.
 
 ## Variants
 - **Control** — the page as extracted. Read-only truth.
-- **Variant** — an ordered list of VariantOps against control. Replay from control = the
-  variant. MVP has exactly one.
+- **Variant** — a NAMED, ordered list of VariantOps against control (optionally aimed at a
+  segment). Replay from control = the variant. The MVP holds many; switching tabs = revert all
+  + replay the selected list.
 - **Op** — a typed change: `update-content` (MVP); `collection-edit`, `add-section` (M8).
 - **VariantOp** — an Op + `source: human|agent` + status (`pending|applied|rejected|failed`).
 - **Proposal** — a pending agent VariantOp awaiting approval, rendered as a **ProposalCard**

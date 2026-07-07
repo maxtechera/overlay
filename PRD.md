@@ -20,8 +20,9 @@ listed in §8 so we can say it out loud instead of getting caught by it.
 > - **How to build:** follow §10's build order, one commit per step; code contracts live in
 >   **TECH-SPEC.md** (follow its §0 pins exactly — the version traps in it were hit for real).
 >   A milestone is done when its §7 pass runs green, not when code exists.
-> - **Budget:** ~5 focused days to the MVP gate (M1 ≈ 1d · M2 ≈ 1.5d · M3 ≈ 1d · M4 ≈ 0.5–1d ·
->   E2E gate + tuning ≈ 1d).
+> - **Sequencing is by dependency, not dates:** M1 → M2 → M3 → M4 → MVP gate (#5), strictly in
+>   order (each pass builds on the previous). After M4, the tail fans out: M5 (evals) · M6
+>   (verify) · M8 (export) are independent of each other; M7 (structure) depends on M6.
 
 ---
 

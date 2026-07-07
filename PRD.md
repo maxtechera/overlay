@@ -30,9 +30,19 @@ listed in §8 so we can say it out loud instead of getting caught by it.
 
 The hard part of AI website optimization is operating on a page you **don't** control: read the live
 DOM, understand it well enough to change it, and generate variants that stay on brand and don't
-break layout. **Thesis:** extract a component schema from the live page, constrain every edit
-(agent or human) to typed ops against that schema, keep the human approving — and a scorer rides
-alongside as **signal, not decider**.
+break layout.
+
+**This app does exactly two things well, and everything in it serves one of them:**
+1. **Understand any live page** — deterministically extract its design system, components,
+   patterns, node facts ("headline wraps to 2 lines at 48px"), and an **ADA/accessibility
+   audit**.
+2. **Generate variants that are validated, verified, and CRO-optimized** — constrained ops
+   against the extracted schema (validated), checked with evidence (verified), anchored to the
+   brief and independently scored (optimized).
+
+**Thesis:** extract a component schema from the live page, constrain every edit (agent or human)
+to typed ops against that schema, keep the human approving — and a scorer rides alongside as
+**signal, not decider**.
 
 **Meta-goal:** a Claude-Code-shaped harness for the open web — thin off-the-shelf loop, and
 our substance in the tool belt, context strategy, and the surface the agent drives. Claude Code
@@ -143,6 +153,19 @@ Each node records which rung classified it (`via: "profile" | "framework" | "sem
 "layout"`) — visible in the overlay label during dev, so mis-classification is debuggable at a
 glance, and honest in the demo ("generic pass got 80% of this page; the profile pinned the
 rest").
+
+**Node facts + ADA audit — extraction that *understands*, not just labels (pillar 1).** Every
+node carries computed **facts**: line count ("wraps to 2 lines"), font size, WCAG contrast
+ratio vs its effective background, truncation, focusability, missing alt. Three consumers:
+1. **Display** — the overlay label and `ComponentCard` show them ("h1 · 2 lines · 48px ·
+   contrast 8.2:1") — the visible proof we understand the page beyond drawing boxes.
+2. **Constraints on generation** — the agent is told the facts and must respect them ("headline
+   is 2 lines; keep it ≤2") — and the M3 warn layer flags regressions after apply: overflow,
+   line-count growth, contrast dropping below WCAG AA, lost alt.
+3. **The ADA audit** — a page-level rollup in the Page Brief (findings by path: low-contrast
+   text, missing alts, broken heading hierarchy, unfocusable CTAs). It's both an insight ("this
+   page ships 3 accessibility issues") and a variant opportunity: **a11y fixes are testable
+   variants** the agent can propose.
 
 **Addressing (load-bearing, do not simplify):** each node gets
 `{ css: "#id | [data-*] | structural path", fingerprint: "first 40 chars normalized" }`.
@@ -303,6 +326,14 @@ interface PageNode {
   rect: { x: number; y: number; w: number; h: number };
   slots: Record<string, { kind: "text" | "media" | "link"; text?: string; href?: string;
                           src?: string; alt?: string }>;
+  facts?: {                       // computed at extract — pillar 1's "we understand" layer
+    lines?: number;               // text wrap count (rect height / line-height)
+    fontPx?: number;
+    contrast?: number;            // WCAG ratio vs effective background (walk up for bg)
+    truncated?: boolean;
+    focusable?: boolean;          // links/CTAs
+    missingAlt?: boolean;         // media
+  };
   classes: string[];              // captured so variants inherit them
   children?: string[];
 }
@@ -328,6 +359,8 @@ interface PageBrief {
   objections: { handled: string[]; unhandled: string[] };
   proofAudit: { present: string[]; missing: string[] };
   ctaAudit: { path: string; text: string; intentStage: string }[];
+  a11yAudit: { path: string; issue: string }[];   // ADA rollup from node facts — deterministic,
+                                                  // rendered in the brief; fixes = variant ideas
   suggestedGoals: string[];
   tone: string; lang: string;     // brand language lives here — no separate BrandProfile object
 }
@@ -370,20 +403,23 @@ same-day).
   visibly changes in <500 ms and revert restores it. On a bot-walled URL: clear error in chat,
   no hang.
 - **M2 — full extraction + overlay + Page Brief.** *Deliverable:* whole-page detection ladder,
-  labeled overlay with `via` tags, paths, editable brief artifact, goal chips, two-way
-  click↔chat wiring. *Pass:* on all 3 test sites — overlay identifies hero + ≥3 sections +
-  cards where they exist; brief renders with every field grounded (no invented claims on spot
-  check); click a preview component → reference chip appears; edit the ICP field → next agent
-  turn reflects the edit.
+  labeled overlay with `via` tags, paths, **node facts + ADA audit** (§4.2), editable brief
+  artifact, goal chips, two-way click↔chat wiring. *Pass:* on all 3 test sites — overlay
+  identifies hero + ≥3 sections + cards where they exist; `ComponentCard`/overlay show computed
+  facts (lines · fontPx · contrast) that spot-check TRUE against devtools; the brief renders
+  with every field grounded (no invented claims on spot check) including an ADA findings list
+  derived from facts; click a preview component → reference chip appears; edit the ICP field →
+  next agent turn reflects the edit.
 - **M3 — variants + COM.** *Deliverable:* op list vs control with toggle + revert,
-  `score_variant` wired, proposals pre-scored, and a **warn-only overflow check** — after every
-  apply, the runtime compares scrollWidth/Height vs client box on the target and flags
-  "overflows its container" on the op (no retries, no screenshots — the full verify loop stays
-  M7; this is the honesty layer that protects the MVP demo). *Pass:* ask for 3 hero variants on
-  `posthog.com` — each proposal card shows control/variant/delta + reasons referencing the
-  brief; toggle control↔variant flips the page; an obviously-worse variant (ask the agent to
-  "make the headline vague and generic") scores a negative delta; an op with a 3×-length
-  headline gets the overflow warning on its card.
+  `score_variant` wired, proposals pre-scored, and **warn-only regression checks** — after
+  every apply, the runtime re-computes the target's facts and flags regressions on the op:
+  overflow, line-count growth, contrast below WCAG AA, lost alt (no retries, no screenshots —
+  the full verify loop stays M7; this is the honesty layer that protects the MVP demo).
+  *Pass:* ask for 3 hero variants on `posthog.com` — each proposal card shows
+  control/variant/delta + reasons referencing the brief; toggle control↔variant flips the page;
+  an obviously-worse variant (ask the agent to "make the headline vague and generic") scores a
+  negative delta; an op with a 3×-length headline gets the overflow + line-growth warning on
+  its card.
 - **M4 — site memory.** *Deliverable:* memory API + `.memory/<hostname>/`,
   `save_memory` tool, memory in context, resume + stale-diff. *Pass:* reject a proposal with a
   reason → next proposal respects it → **quit the browser, reopen, same URL** → brief loads
@@ -425,6 +461,8 @@ eval suites (M6, first post-MVP). NOT cut: site memory — it's M4, inside the M
 without it the demo resets on every refresh.
 Standing limits: heuristic extraction misclassifies on messy sites; client-side apply only (no
 SSR/SEO); proxy won't beat bot walls or auth walls; COM is a prior, not conversion data.
+**Local-first:** the MVP is not deployed publicly — deployed, the key proxy and ingest route are
+open to abuse; a public demo is a future issue with auth + rate limits in front of both.
 
 ## 9. Why this shape (positioning)
 - **Any site, no CMS** → proxy+inject = the "one script you install" deployment model that

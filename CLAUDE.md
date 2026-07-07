@@ -38,6 +38,10 @@ contract; read it fully before touching anything.
   scaffolding.
 - Secrets only in `.env.local` (gitignored), read only in `app/api/**`. Never commit keys,
   never log them.
+- **Local-first: do NOT deploy publicly.** Deployed, `/api/anthropic` is an open proxy to the
+  key and `/api/ingest` a free fetcher. A public demo is its own future issue with protection
+  (deployment password / auth in front of the proxy + rate limits) — never a side effect of
+  closing a milestone.
 - `.memory/` is app data (site memory) — gitignored, never committed.
 - `lib/runtime.ts` stays dependency-free (it runs inside third-party pages).
 - Tools return JSON/strings; never throw across postMessage; every postMessage carries a

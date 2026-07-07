@@ -228,6 +228,19 @@ fully deterministic, no network.
 SEO: read `document.title`, meta description, `og:*`, h1–h3 outline off the live DOM; include in
 the `schema` message.
 
+**Node facts (M2, computed at extract — all from computed style/layout, no LLM):**
+`lines` = round(rect.height / computed line-height) for text nodes · `fontPx` = computed
+font-size · `contrast` = WCAG relative-luminance ratio of computed color vs effective background
+(walk ancestors until a non-transparent background-color; skip if a background-image is in the
+chain — report `contrast: undefined`, don't fake it) · `truncated` = overflow hidden +
+text-overflow ellipsis, or scrollWidth > clientWidth · `focusable` = tabIndex ≥ 0 / intrinsic ·
+`missingAlt` = media without alt/aria-label. **ADA audit** = deterministic rollup over facts:
+contrast < 4.5 (AA, normal text) or < 3 (≥24px) · missingAlt · heading-level jumps in the
+outline · CTA not focusable. Emitted as `{ path, issue }[]` with the schema; the brief renders
+it verbatim (the LLM never invents a11y findings — it only narrates the computed list).
+**M3 warn-only regression checks** re-compute the target's facts after apply and add `warnings`
+to `op-applied` on: overflow growth · `lines` increase · contrast falling below AA · alt lost.
+
 **Overlay:** drawn **inside the iframe** (parent-side boxes drift on scroll). One
 `position:absolute` container appended to `body` at the page's coordinate space
 (`getBoundingClientRect() + scrollY`), `pointer-events: none`, 2px outline + small label chip
@@ -282,6 +295,9 @@ Rules:
 - Propose few, high-conviction changes tied to the ICP, missed pain points, unhandled
   objections, or the goal. Explain each in one sentence of rationale.
 - apply_op requires human approval. If rejected, ask for direction; do not re-propose the same op.
+- Respect node facts as constraints: keep line counts (a 2-line headline stays ≤2 lines), never
+  degrade contrast or accessibility. ADA findings in the brief are variant opportunities —
+  propose fixes.
 - After changing the variant, call score_variant and report the delta honestly — including when
   it is negative.
 - Never claim a change is applied unless the tool result said applied: true.

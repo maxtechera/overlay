@@ -1,0 +1,204 @@
+:root {
+  --bg: #0a0a0a;
+  --panel: #101013;
+  --panel-2: #141418;
+  --border: #232327;
+  --border-2: #34343a;
+  --text: #ededed;
+  --muted: #8a8a92;
+  --faint: #5c5c64;
+  --accent: #f97316;
+  --green: #34d399;
+  --red: #f87171;
+  --indigo: #8b93f8;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Geist", -apple-system, BlinkMacSystemFont, Inter, "Segoe UI", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.mono { font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+button {
+  font: inherit;
+  color: inherit;
+  background: var(--panel-2);
+  border: 1px solid var(--border-2);
+  padding: 6px 12px;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: 0.4; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #0a0a0a; font-weight: 600; }
+button.ghost { background: transparent; }
+button.small { padding: 3px 9px; font-size: 12px; }
+
+input, textarea {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border-2);
+  padding: 7px 10px;
+  outline: none;
+  width: 100%;
+}
+input:focus, textarea:focus { border-color: var(--accent); }
+
+/* ---------- app shell ---------- */
+.shell { display: flex; flex-direction: column; height: 100vh; }
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  flex: none;
+}
+.topbar .brand {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin-right: 6px;
+  white-space: nowrap;
+}
+.topbar .brand .dot { color: var(--accent); }
+.topbar form { display: flex; gap: 8px; flex: 1; }
+.topbar input { max-width: 560px; }
+
+.main { display: flex; flex: 1; min-height: 0; }
+
+/* ---------- preview ---------- */
+.preview {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+}
+.preview-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  font-size: 12px;
+  color: var(--muted);
+  flex: none;
+}
+.preview-tools .spacer { flex: 1; }
+.preview-frame { flex: 1; position: relative; background: #fff; }
+.preview-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.preview-frame .empty {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: #666; background: var(--panel-2);
+  flex-direction: column; gap: 8px;
+}
+.preview-frame .empty .big { font-size: 18px; color: var(--muted); }
+
+.toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  cursor: pointer; user-select: none;
+  color: var(--muted);
+}
+.toggle input { width: auto; }
+.toggle.on { color: var(--text); }
+
+/* ---------- chat panel ---------- */
+.chat {
+  width: 420px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  min-height: 0;
+}
+.chat-head {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: baseline; gap: 8px;
+  flex: none;
+}
+.chat-head .title { font-weight: 600; }
+.chat-head .sub { font-size: 11px; color: var(--faint); }
+
+.chat-scroll { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+
+.msg { max-width: 100%; }
+.msg .who {
+  font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--faint); margin-bottom: 4px;
+  font-family: "Geist Mono", ui-monospace, monospace;
+}
+.msg.user .who { color: var(--indigo); }
+.msg.agent .who { color: var(--accent); }
+.msg .body {
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  padding: 10px 12px;
+  white-space: pre-wrap;
+}
+.msg.user .body { border-color: var(--border-2); }
+
+/* proposal cards */
+.proposal {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  background: var(--panel-2);
+  padding: 10px 12px;
+}
+.proposal .op {
+  font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+  font-family: "Geist Mono", ui-monospace, monospace;
+  color: var(--accent);
+  display: flex; align-items: center; gap: 8px;
+}
+.proposal .op .target { color: var(--faint); text-transform: none; letter-spacing: 0; }
+.proposal .value { margin: 8px 0 4px; font-size: 13px; }
+.proposal .value .old { color: var(--faint); text-decoration: line-through; display: block; margin-bottom: 4px; }
+.proposal .value .new { color: var(--text); display: block; }
+.proposal .rationale { font-size: 12px; color: var(--muted); margin: 6px 0 10px; }
+.proposal .actions { display: flex; gap: 8px; }
+.proposal.applied { border-left-color: var(--green); }
+.proposal.applied .op { color: var(--green); }
+
+.chat-input { border-top: 1px solid var(--border); padding: 12px; flex: none; }
+.chat-input form { display: flex; gap: 8px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.chips button { font-size: 12px; padding: 4px 10px; color: var(--muted); }
+.chips button:hover { color: var(--text); }
+
+.status { font-size: 11px; color: var(--faint); padding: 4px 14px 10px; font-family: "Geist Mono", ui-monospace, monospace; }
+.status .err { color: var(--red); }
+
+/* schema list */
+.schema-count {
+  font-size: 11px; color: var(--faint);
+  font-family: "Geist Mono", ui-monospace, monospace;
+}
+.badge {
+  display: inline-block;
+  font-size: 10px;
+  font-family: "Geist Mono", ui-monospace, monospace;
+  padding: 1px 6px;
+  border: 1px solid var(--border-2);
+  color: var(--muted);
+}
+
+.thinking { display: inline-flex; gap: 4px; align-items: center; color: var(--muted); font-size: 12px; }
+.thinking .d { width: 4px; height: 4px; background: var(--accent); animation: blink 1.2s infinite; }
+.thinking .d:nth-child(2) { animation-delay: 0.2s; }
+.thinking .d:nth-child(3) { animation-delay: 0.4s; }
+@keyframes blink { 0%, 60%, 100% { opacity: 0.25; } 30% { opacity: 1; } }

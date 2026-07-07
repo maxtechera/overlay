@@ -1,0 +1,452 @@
+# PRD — Any-Site Variant Builder (working name: **Overlay**)
+
+Paste **any live URL** — a site we don't own — into a chat. The agent reads the page, produces a
+**Page Brief** (design system, brand language, ICP, pain points), and then proposes and applies
+**A/B test variants** to a live preview, each one **pre-scored by an independent Conversion
+Optimization Model**. One script on someone else's site, variants for experiments — the
+website-optimization-platform model, not the CMS model where you own the build.
+
+**Optimized for: fastest path to a working demo, least code.** Every cut below is deliberate and
+listed in §8 so we can say it out loud instead of getting caught by it.
+
+> ## HANDOFF STATUS (2026-07-07)
+> **Ready to build — start at §10 step 1.** No open decisions, no unvalidated architecture.
+> - **Validated by real runs** (scripts in `scripts/`, keep as regression checks):
+>   proxy fidelity on the test set (`proxy-spike.mjs` + screenshots in
+>   `scripts/shots/`) · multi-step tool loop through the pass-through proxy on pinned deps
+>   (`step0-spike.mjs`, green).
+> - **Environment ready:** `ANTHROPIC_API_KEY` in `.env.local` (gitignored) · `ai@6` +
+>   `@ai-sdk/anthropic@3` pinned and installed · Next 15 scaffold in place.
+> - **How to build:** follow §10's build order, one commit per step; code contracts live in
+>   **TECH-SPEC.md** (follow its §0 pins exactly — the version traps in it were hit for real).
+>   A milestone is done when its §7 pass runs green, not when code exists.
+> - **Budget:** ~5 focused days to the MVP gate (M1 ≈ 1d · M2 ≈ 1.5d · M3 ≈ 1d · M4 ≈ 0.5–1d ·
+>   E2E gate + tuning ≈ 1d).
+
+---
+
+## 1. Why this, and the thesis
+
+The hard part of AI website optimization is operating on a page you **don't** control: read the live
+DOM, understand it well enough to change it, and generate variants that stay on brand and don't
+break layout. **Thesis:** extract a component schema from the live page, constrain every edit
+(agent or human) to typed ops against that schema, keep the human approving — and a scorer rides
+alongside as **signal, not decider**.
+
+**Meta-goal:** a Claude-Code-shaped harness for the open web — thin off-the-shelf loop, and
+our substance in the tool belt, context strategy, and the surface the agent drives. Claude Code
+pointed at a repo; this pointed at a page you don't own.
+
+---
+
+## 2. Core user flow
+
+Surface = **chat (left) + live preview (right)**.
+
+1. **First message is the URL.** The agent's first turn ingests the page (proxy → iframe, §4.1),
+   runs extraction (§4.2), and replies with the **Page Brief artifact**: SEO basics, component
+   outline, ICP, problem statement, pain points, objections, proof/CTA audit, suggested goals.
+   Saved, human-editable, pinned into context for every later turn.
+2. Every extracted block is **addressable**: stable id + selector + human path (`hero.headline`).
+   Ops can target any level — text in a card, a button's label+href, a whole section.
+3. The preview shows a labeled **overlay** and a **Control / Variant toggle**. A variant = an
+   ordered op list against control (replayable, revertible).
+4. The user directs from chat ("make the hero speak to CTOs"). The agent explores via tools —
+   transcript visible — and proposes ops as **actionable cards, pre-scored by the COM** (§4.4).
+   Approve → applies live in the preview.
+5. Everything learned persists to **site memory** (§4.5): verdicts, the brief, learnings the
+   agent chooses to keep. **Reopening the same URL resumes the project** — brief loads from
+   disk, the agent picks up where it left off.
+6. **Export** (post-MVP): variant as an injection snippet (ops JSON + tiny runtime).
+
+**First tracer:** identify the **hero** only, update its **copy + link** from chat. One
+component, end-to-end through every layer.
+
+---
+
+## 3. Goals / Acceptance / Non-goals
+
+**MVP goals**
+- Works on a real third-party URL (including one the audience pastes).
+- Page Brief artifact from the agent's first turn — proves "we understood the page *and* the
+  business."
+- Agent proposes ops at block/card/section granularity, anchored to the brief + goal; every
+  proposal arrives with an independent COM score; human approves.
+- **Rich chat**: tool calls displayed live, and components / proposals / variants / the brief
+  render as interactive inline blocks (§4.3) — the user drives by clicking *and* chatting, in
+  both directions (click in preview → reference in chat; click in chat → highlight in preview).
+
+**Acceptance bar** (dev test set in TECH-SPEC §10, proxy-validated)
+1. A genuinely static page: full flow.
+2. A hydrated Next.js marketing site (`maxtechera.dev` is this tier, not tier 1): text/CTA ops
+   work post-hydration; if the site's JS wipes a patch, the runtime detects and reports it.
+3. Bot-walled site: fails fast with a clear error in chat — predicted failure is a pass.
+
+**Non-goals (MVP):** production SDK · multi-tenant · real traffic/experiments · SSR of variants ·
+perfect extraction. §8 has the full cut list.
+
+---
+
+## 4. Architecture (one page, three dumb routes)
+
+```
+Chat + loop (browser) ──postMessage──> iframe runtime (injected into proxied page)
+       │                                      ▲
+       └──HTTP──> /api/anthropic (key proxy)  └── /api/ingest (fetch + rewrite + inject)
+                  /api/memory (read/write .memory/<hostname>/)
+```
+
+### 4.1 Ingest — `GET /api/ingest?url=`
+Real sites block iframing (`X-Frame-Options`/CSP) and cross-origin frames can't be scripted, so:
+fetch server-side (Chrome UA) → parse with `node-html-parser` → strip CSP `<meta>`, inject
+`<base href="<url>">` (this alone resolves every relative and root-relative `src/href/srcset` —
+no manual absolutization pass needed), inject our compiled `runtime.ts` before `</body>` → serve
+from our origin (same-origin, scriptable). The runtime installs a document-level **click
+interceptor** (`preventDefault` on all `<a>`) — with `<base>` pointing at the target origin, any
+real click would navigate the preview away and kill the session. Also **strip third-party
+experimentation scripts** (Optimizely, VWO, AB Tasty — a small known-src list): they are
+competing DOM mutators that rotate content mid-session and fight our patches; the fidelity spike caught
+a site's own optimizer doing exactly this. Cloudflare/bot-challenge markers or non-HTML →
+`422 { reason }`, surfaced as a plain chat message. Conceptually this IS the "one script you
+install" deployment model.
+
+### 4.2 Extraction (runs in the iframe runtime, client-side — needs computed styles/layout)
+Classify into `hero | section | card | collection | text | media | link`, where `text` carries a
+`variant` (`h1|h2|h3|p|label`) from **computed type scale, not the tag** (half the web puts h1
+styles on a div). M1 detects only the hero (§10 step 3); the full walk lands in M2; card/collection
+pattern-mining lands with structural ops (M7). The runtime also reads SEO basics
+(title/meta/OG/h1–h3) off the DOM — no separate server path.
+
+**Deterministic by requirement — pure code, no LLM, same input → same schema.** Detection is a
+**ladder of signals**, strongest first:
+1. **Per-site profiles (the sanctioned cheat):** a hostname → overrides map tuned for the demo
+   test set (posthog.com, maxtechera.dev, astro.build) — known selectors for hero/sections when
+   the generic pass under-performs. Clearly labeled demo scaffolding; deletable per site.
+2. **Framework fingerprints:** detect once per page, then use framework-specific signals —
+   Material-UI literally names components in classes (`MuiCard-root`, `MuiTypography-h1`,
+   `MuiButton-root` → direct classification); Tailwind pages mark sections/prominence via
+   utility patterns (`container`/`max-w-* mx-auto` wrappers, `py-16+` bands, `text-4xl+`
+   headings, `grid`/`flex` with repeated children → collections).
+3. **Semantic HTML:** `<section>/<header>/<main>/<article>/<footer>`, `h1–h3`, `<a>/<button>`,
+   `<img>/<picture>/<video>`.
+4. **Layout/computed-style heuristics** (the current fallback): type scale, viewport coverage,
+   repeated sibling shapes.
+
+Each node records which rung classified it (`via: "profile" | "framework" | "semantic" |
+"layout"`) — visible in the overlay label during dev, so mis-classification is debuggable at a
+glance, and honest in the demo ("generic pass got 80% of this page; the profile pinned the
+rest").
+
+**Addressing (load-bearing, do not simplify):** each node gets
+`{ css: "#id | [data-*] | structural path", fingerprint: "first 40 chars normalized" }`.
+Re-find requires the fingerprint to still match; **on mismatch: drop the op and report — never
+guess.** Valid schema ≠ valid layout: constrained ops bound *what* the agent touches, they don't
+guarantee rendering — that honesty stays in the demo script, and the verify loop (M6) is the fix.
+
+### 4.3 The agent — loop in the browser
+**One loop host, no abstraction layer:** Vercel AI SDK core (`ai` + `@ai-sdk/anthropic`) running
+in the parent window, provider `baseURL` → `/api/anthropic` (a dumb key-holding proxy; the key
+never reaches the client). Everything the agent touches already lives in the browser, so **tools
+are plain async functions** — no server↔client tool bridge, no correlation ids, no session map.
+`stopWhen: stepCountIs(16)`.
+
+Auth decision (speed over subscription): **API key, not Claude-account OAuth.** The Agent SDK
+subscription path needs a server-side session + SSE tool bridge — roughly a third of the backend
+code for zero demo value. Demo usage costs a few dollars. Revisit post-MVP if at all.
+
+Tools (each ~10 lines: zod schema + `sendToIframe` or store lookup):
+
+| Tool | Answers from | Purpose |
+|---|---|---|
+| `list_components` | schema store | outline: ids, types, paths, one-liners |
+| `read_component` | schema store | full slots/classes/rect of one node |
+| `apply_op` | iframe | submit an `Op` — awaits human approval first |
+| `revert_op` | iframe | undo an applied op |
+| `score_variant` | COM (§4.4) | rate current variant — proposals return pre-scored |
+| `save_memory` (M4) | memory API (§4.5) | replace the site memory doc with durable learnings |
+
+Context strategy: system prompt + Page Brief + component *outline*; the agent reads full nodes on
+demand (explores like Claude Code explores a repo — never receives the whole DOM). Human-in-the-
+loop is just `apply_op`'s execute awaiting an approval promise the ProposalCard resolves.
+
+**Chat rendering contract (requirement, not polish).** The chat is not a text stream — it renders
+**rich blocks inline**, and the user can act on all of them by clicking or by replying:
+
+| Block | Rendered when | Interaction |
+|---|---|---|
+| `ToolCallRow` | every tool call/result | expand to see args/result — the watchable-agent story |
+| `BriefArtifact` | first turn | fields editable in place; edits update pinned context |
+| `ComponentCard` | agent mentions/reads a component | click → highlight + scroll it in the preview; "ask about this" seeds the composer |
+| `ProposalCard` | agent proposes an op | before/after slot diff + COM score badge + reasons; **Approve / Reject** buttons resolve `apply_op` |
+| `VariantSummary` | on request / after M3 | op list + score; toggle control/variant in preview |
+
+Mechanism (thin, from the SDK): the loop streams typed message parts (text, tool call, tool
+result); `MessageList` is a switch from part type → block component — no bespoke protocol.
+Interaction is **bidirectional**: clicking a component in the *preview* inserts its path
+(`hero.headline`) as a reference chip in the composer, so "pointing" and "talking" compose —
+click the hero, type "make this about shipping speed", send.
+
+### 4.4 The COM — independent verificator, deliberately rudimentary
+A second model in its own context. `scoreVariant(control, variantOps, brief, goal)` → one
+`generateObject` call (Haiku, through the same proxy) → it rates **both control and variant**
+(0–1) against the brief (speaks to the ICP? addresses an unhandled objection? fills a proof
+gap?) and reports the **delta** — unanchored single scores cluster around 0.7 and read as
+arbitrary; the comparison is what carries information. Generator ≠ evaluator: the agent never sees the COM's rubric; the COM prompt states the
+goal but never enumerates what "good" looks like. Honest framing: **zero traffic → this is a
+prior, not conversion data**; real ranking is bandits over live users (out of scope; M8 simulates
+the handoff). Swappable by design — `variant in → score out` is where a trained model slots in
+later, and every `(brief, op, score, human verdict)` is logged as its future training data.
+
+### 4.5 Site memory (M4, in the MVP) — a CLAUDE.md for the website
+**Working memory (already here):** the messages array, the Page Brief pinned via the
+rebuilt-per-turn system prompt, schema + op stores. Context-by-exploration is the discipline.
+
+**Persistent site memory — file storage, Claude Code patterns.** A folder per site on disk,
+through a trivial API:
+
+```
+.memory/<hostname>/
+  memory.md     # agent-curated: durable learnings, taste rules, do-not-touch notes
+  state.json    # app-managed: EVERYTHING extracted + decided —
+                #   schema snapshot (components/paths/fingerprints) · seo · brief (ICP, pains,
+                #   objections…) · goal · variant ops + scores · approve/reject verdicts
+```
+
+On reopen, LLM/human artifacts (brief, goal, ops, verdicts, memory) load as-is — never
+regenerated. The structural schema re-extracts against the fresh DOM (it's free, deterministic,
+and the live element map requires it); the **saved schema snapshot** then serves as prior +
+change detector: fingerprints that moved or vanished get flagged ("pricing section changed since
+last session") instead of silently trusted.
+
+- `memory.md` is injected into the system prompt every turn (exactly like CLAUDE.md). The agent
+  maintains it through a `save_memory` tool — called when it learns something durable ("their
+  ICP responds to proof, not promises"; "never touch the compliance footer"). Approve/reject
+  verdicts with reasons are auto-appended by the app.
+- **Reopening the same URL resumes the project:** state.json rehydrates the brief and variant,
+  memory.md rides in context — no re-extraction of understanding, the agent picks up where it
+  left off. This is the reason memory is MVP, not polish: without it the demo resets every
+  refresh.
+- Demo beats: reject with a reason → next proposal respects it → reload → *still* respects it;
+  and `memory.md` is a real file you can open on screen — the "CLAUDE.md for your website"
+  moment — the product matures with each site it works on.
+
+**Evals (M5, first post-MVP):**
+1. **Harness smoke evals** (no LLM, per commit): ingest + extract against the validated 3-site
+   set; assert hero found, slots non-empty, apply/revert round-trips.
+2. **COM sanity suite** — the answer to "how do you know your judge isn't noise": ~6 fixture
+   pairs with known ordering (obviously-better → positive delta, obviously-worse → negative,
+   identical → delta ≈ 0, same-input stability across runs). Sign flip or drift = fail.
+3. **The accruing eval set:** the `(brief, op, score, human verdict)` log in state.json is
+   replayable — after any prompt change, check whether the COM agrees with past human verdicts
+   more or less.
+
+### 4.6 Post-MVP mechanisms (specified so we don't improvise later)
+- **Verify loop (M6):** after apply → overflow/clipping + layout-shift + WCAG contrast checks in
+  the runtime; failures return to the agent → revise → retry (max 2) → proof note on the op. No
+  unverified op reaches `applied` once this ships.
+- **New sections (M7): clone-and-fill, not free generation.** Deep-clone the nearest donor
+  pattern already on the page; agent only fills typed slots; a11y enforced at fill time (heading
+  hierarchy, alt, focusable CTAs). Squeezes the parameter space; on-brand by construction.
+- **Export (M8):** ops JSON + a ~50-line standalone applier script.
+
+---
+
+## 5. Data model (`lib/types.ts` — single source of truth, use verbatim)
+
+```ts
+type NodeType = "hero" | "section" | "card" | "collection" | "text" | "media" | "link";
+type TextVariant = "h1" | "h2" | "h3" | "p" | "label";
+
+interface SelectorRef { css: string; fingerprint?: string }
+
+interface PageNode {
+  id: string;                     // "n12"
+  path: string;                   // "hero.headline" — chat/agent/op addressing
+  type: NodeType;
+  variant?: TextVariant;
+  selector: SelectorRef;
+  rect: { x: number; y: number; w: number; h: number };
+  slots: Record<string, { kind: "text" | "media" | "link"; text?: string; href?: string;
+                          src?: string; alt?: string }>;
+  classes: string[];              // captured so variants inherit them
+  children?: string[];
+}
+
+// MVP op = update-content only. "collection-edit" and "add-section" join in M7.
+type Op = { op: "update-content"; target: string /* node id */;
+            slots: Record<string, { text?: string; href?: string; src?: string; alt?: string }>;
+            rationale: string };
+
+interface VariantOp { id: string; source: "human" | "agent"; op: Op;
+                      status: "pending" | "applied" | "rejected" | "failed"; }
+
+interface Variant { id: string; goal: string; ops: VariantOp[]; score?: ComScore }
+
+interface ComScore { control: number; variant: number; delta: number;   // scores BOTH — the
+                     confidence: number; reasons: string[] }            // delta is the story
+
+interface PageBrief {
+  seo: { title: string; metaDescription?: string; og: Record<string, string>;
+         headingOutline: { level: 1 | 2 | 3; text: string }[] };
+  icp: string; problemStatement: string; valueProp: string;
+  painPoints: { addressed: string[]; missed: string[] };
+  objections: { handled: string[]; unhandled: string[] };
+  proofAudit: { present: string[]; missing: string[] };
+  ctaAudit: { path: string; text: string; intentStage: string }[];
+  suggestedGoals: string[];
+  tone: string; lang: string;     // brand language lives here — no separate BrandProfile object
+}
+```
+
+## 6. Tech stack
+Next.js 15 (App Router) · TypeScript strict · React 19 · `ai@6` + `@ai-sdk/anthropic@3`
+(browser loop; Sonnet for the agent, Haiku for the COM) · `zod` · `zustand` ·
+`node-html-parser` · `nanoid` · **UI: Tailwind v4 + shadcn/ui + Vercel AI Elements** (researched
+decision, see below) — dark theme, orange accent via CSS variables. Dev-only: `esbuild` (bundles
+`lib/runtime.ts` to the injectable string). **No other libraries.**
+Local-first (`pnpm dev`); deploys to Vercel as-is. Env: `ANTHROPIC_API_KEY` only.
+
+**UI kit decision (low-effort path to the §4.3 chat contract):** [AI Elements]
+(https://github.com/vercel/ai-elements) is Vercel's own shadcn-based registry of AI chat
+components — `Conversation`, `Message`, `Response` (streaming markdown), **`Tool` with
+ToolHeader/Input/Output** (our `ToolCallRow`, prebuilt), `PromptInput` (composer),
+`Suggestions` (our goal chips), `Reasoning`, `Sources`. Components are **copied into the repo**
+via CLI (shadcn registry model) — fully editable, no runtime lock-in, and presentational enough
+to feed from our zustand `ChatBlock` store instead of `useChat`. We hand-build only the three
+domain blocks on shadcn primitives: `ProposalCard`, `BriefArtifact`, `ComponentCard`.
+Runner-up: `assistant-ui` — stronger runtime/state management, but we already own state
+(fullStream → zustand); adopting its runtime would fight our custom loop. If an AI Elements
+component turns out to hard-require `useChat` context, keep its markup/styles and swap the data
+source — the code lives in our repo.
+
+## 7. Milestones — MVP = M1–M4. Every milestone = deliverable + a pass you can RUN.
+
+A milestone is not done when the code exists; it's done when its **pass** succeeds. Passes are
+cumulative — each milestone's pass re-runs the previous ones (they're cheap; regressions caught
+same-day).
+
+- **M1 — hero tracer.** *Deliverable:* chat + preview shell, ingest, hero detection, op
+  pipeline, browser loop (build order §10). *Pass:* on `maxtechera.dev` — send the URL, get a
+  mini-brief; say "change the copy, point the CTA at /demo"; approve the proposal card; the hero
+  visibly changes in <500 ms and revert restores it. On a bot-walled URL: clear error in chat,
+  no hang.
+- **M2 — full extraction + overlay + Page Brief.** *Deliverable:* whole-page detection ladder,
+  labeled overlay with `via` tags, paths, editable brief artifact, goal chips, two-way
+  click↔chat wiring. *Pass:* on all 3 test sites — overlay identifies hero + ≥3 sections +
+  cards where they exist; brief renders with every field grounded (no invented claims on spot
+  check); click a preview component → reference chip appears; edit the ICP field → next agent
+  turn reflects the edit.
+- **M3 — variants + COM.** *Deliverable:* op list vs control with toggle + revert,
+  `score_variant` wired, proposals pre-scored. *Pass:* ask for 3 hero variants on
+  `posthog.com` — each proposal card shows control/variant/delta + reasons referencing the
+  brief; toggle control↔variant flips the page; an obviously-worse variant (ask the agent to
+  "make the headline vague and generic") scores a negative delta.
+- **M4 — site memory (MVP closes here).** *Deliverable:* memory API + `.memory/<hostname>/`,
+  `save_memory` tool, memory in context, resume + stale-diff. *Pass:* reject a proposal with a
+  reason → next proposal respects it → **quit the browser, reopen, same URL** → brief loads
+  from disk without an LLM call, the agent's greeting references the learning, and
+  `.memory/<hostname>/memory.md` contains it.
+
+**MVP gate — full-experience E2E validation (run when M4 passes; this is also the demo
+dry-run):** one scripted session per test site (`posthog.com`, `maxtechera.dev`, `astro.build`),
+each covering the entire arc — URL → brief → goal chip → 2+ proposals → approve one, reject one
+with a reason → score delta visible → reload → resume with memory. Plus the failure lap: a
+bot-walled URL and a page with no detectable hero, both answered honestly in chat. **Record the
+best full run as a video** — it's the demo insurance and the proof artifact. MVP is "complete"
+only when this gate passes on all three sites without touching code between runs.
+
+- **M5 — evals** (§4.5). *Pass:* `pnpm eval` runs extraction smoke tests on saved fixtures +
+  the 6-case COM sanity suite, exit 0; a deliberately broken fixture fails it.
+- **M6 — verify loop** (§4.6). *Pass:* an op that overflows its container gets auto-revised or
+  surfaced as "needs human," with the check results attached.
+- **M7 — structure ops** (§4.6). *Pass:* "add a social-proof section after the hero" on a page
+  with a donor pattern → new section inherits classes, passes a11y fill rules, verified by M6.
+- **M8 — export + bandit sim.** *Pass:* exported snippet applied to the *original* live page in
+  a clean tab reproduces the variant; sim shows COM-prior → bandit handoff on synthetic
+  traffic.
+
+## 8. Cuts + honest limits (say these out loud)
+Cut from MVP, deliberately: Claude-subscription auth (API key instead) · inline/manual editing
+(agent edits + approve only) · multi-variant tabs (one variant vs control) · pre-flight report
+(plain error messages instead) · BrandProfile extraction (tone/lang live in the brief) ·
+card/collection mining (M7) · screenshots + viewport checks (M6) · MutationObserver re-apply
+(static-page scope; hydrated sites may wipe patches — we say so) · export snippet (M8) ·
+eval suites (M5, first post-MVP). NOT cut: site memory — it's M4, inside the MVP, because
+without it the demo resets on every refresh.
+Standing limits: heuristic extraction misclassifies on messy sites; client-side apply only (no
+SSR/SEO); proxy won't beat bot walls or auth walls; COM is a prior, not conversion data.
+
+## 9. Why this shape (positioning)
+- **Any site, no CMS** → proxy+inject = the "one script you install" deployment model that
+  real optimization platforms use.
+- **Variants as ops, human approves, scorer as signal-not-decider** → experimentation as the
+  product motion, human-in-the-loop by construction; generator ≠ evaluator keeps the signal
+  clean.
+- **Built, not just driven** → thin loop host, everything around it hand-built: tool belt,
+  context-by-exploration, approval gates, the surface the agent operates.
+- **Clone-and-fill + op/verdict logging** → squeezed parameter space; the logs are the dataset
+  you'd need to move toward one-shot on-brand generation.
+- **Learned preferences + COM sanity suite** → per-brand taste that compounds per site, and a
+  calibrated judge: the eval answers "is your scorer signal or noise" before it's asked.
+
+## 10. M1 build order (each step runnable before the next; commit per step)
+
+> Code-level contracts — pinned versions, exact APIs, complete proxy/tools/loop/runtime/prompt
+> code, store shapes, UX choreography — live in **TECH-SPEC.md**. Build from that file.
+
+```
+app/page.tsx                     # two panes
+app/api/ingest/route.ts          # §4.1
+app/api/anthropic/[...p]/route.ts# ~15-line key proxy
+app/api/memory/route.ts          # (M4) read/write .memory/<hostname>/
+lib/{types,prompts,agent,com}.ts # types §5 verbatim · prompts · loop+tools · scoreVariant
+lib/{runtime,profiles}.ts        # iframe side: extract (ladder §4.2)/apply/revert + postMessage
+lib/store.ts                     # zustand: schema, chat, variant, approvals
+components/{ChatPane,MessageList,PreviewPane,ProposalCard,ComponentCard,BriefArtifact}.tsx
+components/ai-elements/          # installed via AI Elements CLI — editable source (§6)
+```                              # MessageList = ChatBlock → AI Elements/custom block switch
+
+1. **Shell:** two panes render; chat input echoes.
+2. **Ingest:** iframe shows `maxtechera.dev` visually intact through the proxy.
+3. **Handshake:** runtime posts `ready` → parent sends `extract` → hero node returned → overlay
+   box drawn. Hero heuristic: most prominent heading in top 120% of viewport (largest computed
+   font-size among h1/h2/[role=heading], first wins ties) with a link/button descendant; hero =
+   nearest ancestor ≥60% viewport width; slots = headline / subhead (≤300 chars, optional) / cta.
+   No candidate → empty schema; the agent must say so, not pretend.
+4. **Op pipeline sans agent:** hardcoded button applies + reverts an `update-content` on the
+   headline. Apply = re-find selector (fingerprint must match, else `refind-failed`) → set
+   textContent/href; keep `{opId, prevSlots}` for revert. Never touch classes/structure.
+5. **Loop:** agent turn streams with `read_component` + `apply_op`; `MessageList` renders text
+   parts + `ToolCallRow`s live; apply_op awaits the ProposalCard's approve.
+6. **The tick:** URL → mini-brief → instruction → pre-scored proposal → approve → hero changes
+   live. Demo it end-to-end. M1 done.
+
+Builder rules: interfaces from §5 verbatim · no libraries beyond §6 (UI comes from AI Elements /
+shadcn — never hand-roll chat scaffolding) · tools return JSON/strings, never
+throw across postMessage · every postMessage carries a `requestId` with a pending-map in
+`IframeHost` · keys only in `app/api/**`.
+
+---
+
+## 11. Hard parts — verified, with prepared solutions
+
+Every place this build can actually hurt, with the solution decided **now** so the builder never
+improvises. The two riskiest assumptions are **already validated by spikes** (results in
+TECH-SPEC §10/§12): the pass-through proxy renders the test set
+near-pixel-perfect with our script injected and the DOM readable, and a multi-step tool loop
+streams through that proxy cleanly on the pinned `ai@6` APIs.
+
+| # | Hard part | Prepared solution |
+|---|---|---|
+| 1 | **Loop + proxy streaming.** Multi-step tool streaming is known to break through protocol-*translating* proxies (LiteLLM-class bugs). | Proxy is a **byte-level pass-through** (never parse or re-emit SSE). ✅ **Validated**: `scripts/step0-spike.mjs` ran a 2-step tool loop through it green; `scripts/spike-shots.mjs` validated ingest fidelity on all three test sites. Residual: re-confirm once from an actual browser tab during §10 step 5 (expected no-op — browser fetch streams SSE the same way). |
+| 2 | **Human approval mid-loop.** | Primary: `apply_op.execute` awaits an approval promise the ProposalCard resolves — trivial *because* loop and UI share a process; no timeout needed (user is present). **Reject must resolve, not throw**: return `{ applied: false, reason: "rejected by user" }` so the model continues gracefully. Native `needsApproval: true` is the documented alternative if we ever move the loop server-side — don't use both. |
+| 3 | **Transcript without `useChat`.** `useChat` assumes a server chat endpoint; we don't have one. | Consume `result.fullStream` directly. Handle exactly four part types: `text-delta` (append to current text block), `tool-call` (open a `ToolCallRow` / `ProposalCard` keyed by `toolCallId`), `tool-result` (close it), `error`. Ignore the rest (observed full list in TECH-SPEC §0). Push into the zustand chat store; batch text-deltas with `requestAnimationFrame`. This IS the §4.3 rendering contract's implementation — no extra protocol. |
+| 4 | **Multi-turn memory.** No server session to lean on. | Keep `messages: ModelMessage[]` in the store; after each turn append `(await result.response).messages` (includes tool calls/results). The Page Brief is NOT a message — it's interpolated into the system prompt, rebuilt each turn from the store (so human edits to the brief take effect on the next turn automatically). |
+| 5 | **Fingerprints self-invalidate.** After we change the hero headline, its text fingerprint no longer matches — the next op or revert on that node would fail our own re-find rule. | Two-tier addressing: at extract time the runtime keeps a live `Map<nodeId, Element>` — **all in-session ops/reverts resolve through the element map**, never re-query. `SelectorRef` + fingerprint are only for re-attach after reload and for the export snippet (which runs against the *original* page, where fingerprints are valid). |
+| 6 | **Sites whose JS fights us.** Hydration re-render can wipe patches; the page's own `fetch`es now cross-origin (we serve from our origin) and may fail. | Accepted, scoped, and worded in chat: MVP is static-ish pages (tier 1); on tier 2 the *server-rendered HTML* renders fine and text ops work on first paint — if the site's JS later reverts a patch, the runtime detects it (element's textContent ≠ op value on a 1s check) and reports `op-wiped` so the agent/user sees truth. No MutationObserver re-apply in MVP. |
+| 7 | **Hero detection variance.** One heuristic won't fit all pages. | The §4.2 detection ladder (per-site profiles → framework fingerprints → semantic → layout) + a hard rule: **empty result is a valid result** — the agent says "couldn't identify a hero" instead of guessing. Tune against the canonical test set only (posthog.com · maxtechera.dev · astro.build); resist tuning against the world. |
+| 8 | **COM independence in one process.** | Independence = context separation, not infrastructure: `com.ts` exports one function, own system prompt, **zero shared messages** with the agent loop; the agent only ever sees the returned `ComScore` JSON via the tool result. Enforced by a lint-level rule: `com.ts` imports nothing from `agent.ts`/store. |
+| 9 | **Anthropic browser CORS.** Provider called from a page, not Node. | Non-issue by construction: requests go same-origin to `/api/anthropic/*`; the browser never talks to Anthropic. No `anthropic-dangerous-direct-browser-access`, no CORS headers needed. |
+
+With both spikes green, hard parts 1–5 and 9 are architecture-solved and just need the code
+written to this spec; 6–8 are scoped judgment calls already made above.

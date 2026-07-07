@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      - name: Upload evidence (screenshots, videos, traces) # every PR gets visual proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-evidence
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 14
+
+  harness-lint:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Code changes must ship with e2e specs
+        env:
+          EXEMPT: ${{ contains(github.event.pull_request.labels.*.name, 'harness-exempt') }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "$EXEMPT" = "true" ]; then echo "harness-exempt label set — skipping"; exit 0; fi
+          git fetch origin "$BASE_REF" --depth=50
+          CHANGED=$(git diff --name-only "origin/$BASE_REF"...HEAD)
+          echo "changed files:"; echo "$CHANGED"
+          if echo "$CHANGED" | grep -qE '^(app|lib|components)/' && ! echo "$CHANGED" | grep -qE '^e2e/'; then
+            echo "::error::This PR changes app/, lib/, or components/ but touches no e2e specs. The harness (CLAUDE.md) requires every code PR to ship tests — and with them, the screenshot/video evidence CI records. Add or update specs under e2e/, or ask a maintainer for the 'harness-exempt' label."
+            exit 1
+          fi
+          echo "harness ok"

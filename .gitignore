@@ -1,0 +1,8 @@
+node_modules
+.next
+.env.local
+*.log
+.memory/
+lib/runtime.built.js
+test-results/
+playwright-report/

@@ -69,9 +69,14 @@ fix it or challenge this glossary in a PR.
   agent's reasoning.
 
 ## Memory & process
-- **Site memory** — `.memory/<hostname>/`: `memory.md` (agent-curated durable knowledge, in
-  context every turn — the CLAUDE.md pattern) + `state.json` (app-managed: schema snapshot,
-  seo, brief, goal, ops, scores, verdicts).
+- **Project context** — `context.md`: USER-authored, per-site ("launching in August, goal =
+  trial signups, never touch pricing"), UI-editable, injected every turn. The user defines the
+  project; the agent works inside it.
+- **Site memory** — `.memory/<hostname>/`: `context.md` (user-authored) + `memory.md`
+  (agent-curated durable knowledge — the CLAUDE.md pattern) + `state.json` (app-managed:
+  schema snapshot, seo, brief, goal, experiments, variants, verdicts).
+- **Approval mode** — `ask` (default: every op awaits the ProposalCard) or `auto` (ops apply
+  immediately, still recorded + revertible). Claude Code's permission model on page edits.
 - **Resume** — reopen same URL: LLM/human artifacts hydrate from disk (never regenerated);
   structure re-extracts fresh; saved schema diffs by path+fingerprint → **stale** nodes flagged.
 - **Milestone / pass** — a milestone is done when its runnable pass (PRD §7 = the issue's

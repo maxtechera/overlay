@@ -225,8 +225,25 @@ loop is just `apply_op`'s execute awaiting an approval promise the ProposalCard 
 | `ExperimentPlan` | first turn, after the brief; also on request | card per proposal (name · target · hypothesis · status); **Build arms** directs the agent at that experiment |
 | `VariantGallery` | agent renders it inline after saving variants; also on request | arms grouped by experiment: best-effort thumbnail, COM delta, segment tag, suggested allocation (prior-labeled); click → switch preview |
 
-Mechanism (thin, from the SDK): the loop streams typed message parts (text, tool call, tool
-result); `MessageList` is a switch from part type → block component — no bespoke protocol.
+**Controls & transparency (Claude-Code-grade, MVP):**
+- **Project context, user-authored:** a per-site *context* document ("we're launching a cohort
+  in August; primary goal is trial signups; never touch pricing copy") — editable in the UI,
+  injected into the system prompt every turn alongside the brief and memory. The user defines
+  the project; the agent works inside it.
+- **Model + thinking controls:** a settings bar — model picker (Sonnet default · Haiku cheap ·
+  Opus deep) and an extended-thinking toggle. Applied per turn, no reload.
+- **Reasoning displayed:** when thinking is on, reasoning streams into the transcript as
+  collapsible blocks — you watch it think, like Claude Code.
+- **Tool calling displayed:** every call/result as expandable `ToolCallRow`s with
+  running/done/error states (already the §4.3 contract — reaffirmed as non-negotiable).
+- **Diffs + permission modes:** the ProposalCard is a real **slot-level diff** (old → new per
+  slot, delete/insert coloring) behind a permission control: **Ask each time** (default) or
+  **Auto-apply (revertible)** — Claude Code's permission model on page edits. Mode switchable
+  mid-session; auto-applied ops still land in the op list fully revertible.
+
+Mechanism (thin, from the SDK): the loop streams typed message parts (text, reasoning, tool
+call, tool result); `MessageList` is a switch from part type → block component — no bespoke
+protocol.
 Interaction is **bidirectional**: clicking a component in the *preview* inserts its path
 (`hero.headline`) as a reference chip in the composer, so "pointing" and "talking" compose —
 click the hero, type "make this about shipping speed", send.
@@ -272,6 +289,7 @@ through a trivial API:
 
 ```
 .memory/<hostname>/
+  context.md    # USER-authored project context — editable in the UI, injected every turn
   memory.md     # agent-curated: durable learnings, taste rules, do-not-touch notes
   state.json    # app-managed: EVERYTHING extracted + decided —
                 #   schema snapshot (components/paths/fingerprints) · seo · brief (ICP, pains,
@@ -455,13 +473,16 @@ same-day).
 
 - **M1 — hero tracer.** *Deliverable:* chat + preview shell with the **front-door empty
   state** (URL input + "paste your URL — analysis takes about a minute"), ingest, hero
-  detection, op pipeline, browser loop (build order §10). *Pass:* on `maxtechera.dev` — send the URL, get a
+  detection, op pipeline, browser loop (build order §10); transcript shows tool calls AND
+  reasoning blocks (thinking on); ProposalCard renders a slot-level diff. *Pass:* on `maxtechera.dev` — send the URL, get a
   mini-brief; say "change the copy, point the CTA at /demo"; approve the proposal card; the hero
   visibly changes in <500 ms and revert restores it. On a bot-walled URL: clear error in chat,
   no hang.
 - **M2 — full extraction + overlay + Page Brief.** *Deliverable:* whole-page detection ladder,
   labeled overlay with `via` tags, paths, **node facts + ADA audit** (§4.2), editable brief
-  artifact, goal chips, **Experiment Plan block** (6–10 proposals, every target a real extracted
+  artifact, goal chips, **settings bar** (model picker + thinking toggle) and the **project
+  context panel** (user-authored, in every system prompt; localStorage until M4 persists it),
+  **Experiment Plan block** (6–10 proposals, every target a real extracted
   path, every hypothesis grounded in the brief), two-way click↔chat wiring. *Pass:* on all 3 test sites — overlay
   identifies hero + ≥3 sections + cards where they exist; `ComponentCard`/overlay show computed
   facts (lines · fontPx · contrast) that spot-check TRUE against devtools; the brief renders
@@ -484,7 +505,7 @@ same-day).
   3 more variants; an
   obviously-worse variant (ask for "vague and generic") scores a negative delta; an op with a
   3×-length headline gets the overflow + line-growth warning on its card.
-- **M4 — site memory** (§4.6)**.** *Deliverable:* memory API + `.memory/<hostname>/` (persisting ALL variants),
+- **M4 — site memory** (§4.6)**.** *Deliverable:* memory API + `.memory/<hostname>/` (persisting ALL variants + the user's context.md),
   `save_memory` tool, memory in context, resume + stale-diff. *Pass:* reject a proposal with a
   reason → next proposal respects it → **quit the browser, reopen, same URL** → brief loads
   from disk without an LLM call, the agent's greeting references the learning, and

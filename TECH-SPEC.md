@@ -139,7 +139,9 @@ export const makeTools = (deps: { send: SendToIframe; stores: Stores }) => ({
     }),
     execute: async (op) => {
       const opId = nanoid();
-      const approved = await deps.stores.approvals.request(opId, op);  // ProposalCard resolves
+      const approved = deps.stores.settings.approvalMode === "auto"
+        ? true                                                          // auto-apply: still recorded + revertible
+        : await deps.stores.approvals.request(opId, op);                // ask: ProposalCard resolves
       if (!approved) return { applied: false, reason: "rejected by user" };  // resolve, NEVER throw
       const res = await deps.send({ t: "apply-op", opId, op: { op: "update-content", ...op } });
       deps.stores.variant.record(opId, op, res.ok);
@@ -172,16 +174,21 @@ export const makeTools = (deps: { send: SendToIframe; stores: Stores }) => ({
 export async function runTurn(userText: string) {
   const chat = useChatStore.getState();
   chat.pushUser(userText);
+  const { model, thinking } = useSettings.getState();
   const result = streamText({
-    model: anthropic("claude-sonnet-4-6"),
-    system: buildSystem(),                       // rebuilt EVERY turn — brief edits take effect
+    model: anthropic(model),                     // settings bar — applied per turn
+    system: buildSystem(),                       // rebuilt EVERY turn — brief/context edits take effect
     messages: [...chat.messages, { role: "user", content: userText }],
     tools: makeTools(deps),
     stopWhen: stepCountIs(16),
+    ...(thinking && { providerOptions: { anthropic:
+      { thinking: { type: "enabled", budgetTokens: 8000 } } } }),
   });
   for await (const p of result.fullStream) {
     switch (p.type) {
       case "text-delta": chat.appendText((p as any).text ?? (p as any).delta); break;
+      case "reasoning-delta": case "reasoning":
+        chat.appendReasoning((p as any).text ?? (p as any).delta); break;   // collapsible block
       case "tool-call":  chat.openTool(p.toolCallId, p.toolName, (p as any).input); break;
       case "tool-result": chat.closeTool(p.toolCallId, (p as any).output); break;
       case "error": chat.pushError(String((p as any).error)); break;
@@ -194,7 +201,8 @@ export async function runTurn(userText: string) {
 ```
 
 `buildSystem()` = AGENT_SYSTEM template (§8) interpolating url, component outline, brief JSON
-(when present), active goal. The brief is **never** a chat message. Batch `appendText` behind
+(when present), the user's **project context** (verbatim, under "Project context (user-set,
+authoritative):"), site memory, active goal. The brief is **never** a chat message. Batch `appendText` behind
 `requestAnimationFrame`. First turn is triggered by the URL message: UI calls ingest + extract
 first, then `runTurn("[page loaded] …")` — the agent does not call ingest itself (keeps M1 to
 read/apply tools; extraction is deterministic, not agent work).
@@ -343,7 +351,11 @@ re-run once with the dropped names listed as "invalid".
 
 ```ts
 session:  { url; status: "idle"|"ingesting"|"extracting"|"ready"|"error"; error?;
-            brief: PageBrief | null; goal: string; setGoal; patchBrief }
+            brief: PageBrief | null; goal: string; setGoal; patchBrief;
+            context: string; setContext }        // user-authored project context (M2 UI;
+                                                 //   persisted to .memory/<host>/context.md at M4)
+settings: { model: "claude-sonnet-4-6"|"claude-haiku-4-5"|"claude-opus-4-8";
+            thinking: boolean; approvalMode: "ask"|"auto" }
 schema:   { nodes: Record<string, PageNode>; order: string[]; outline(); node(id) }
 experiments: { list: Experiment[]; setStatus(id, status) }   // plan cards; persisted w/ state
 variants: { list: Variant[]; activeId: "control" | string; create(name, goal?, segment?, experimentId?);
@@ -362,13 +374,16 @@ type ChatBlock =
   | { kind: "tool"; toolCallId: string; name: string; input: unknown; output?: unknown }
   | { kind: "proposal"; opId: string; op: Op; score?: ComScore;
       status: "pending" | "approved" | "rejected" }
+  | { kind: "reasoning"; text: string }          // collapsible; streams while thinking
   | { kind: "plan" }                             // ExperimentPlan cards from experiments store
   | { kind: "gallery" }                          // renders from the variants store; no payload
   | { kind: "brief" } | { kind: "error"; text: string };
 ```
 
-`MessageList` = switch on `block.kind` → Text / ToolCallRow / ProposalCard / BriefArtifact /
-VariantGallery / Error. The loop pushes a `gallery` block after a turn in which
+`MessageList` = switch on `block.kind` → Text / Reasoning / ToolCallRow / ProposalCard /
+BriefArtifact / VariantGallery / Error. **ProposalCard is a slot-level diff**: per changed slot,
+old value (red/strike) → new value (green), href/src shown as before→after lines; plus COM
+badge, warnings, Approve/Reject (hidden in auto mode — shows "auto-applied · Revert"). The loop pushes a `gallery` block after a turn in which
 `create_variant` was called (and whenever the user asks to compare). `apply_op`'s tool-call part opens a `proposal` block (not a `tool` block) — match on
 `toolName === "apply_op"`.
 
@@ -400,6 +415,7 @@ cosmetic. Hard part #1's remaining unknown is only the *AI-loop* spike (step 0),
 **Storage** — one folder per site, written by a trivial API route (server fs, demo-grade):
 
 ```
+.memory/<hostname>/context.md   # USER-authored project context — injected every turn, UI-editable
 .memory/<hostname>/memory.md    # agent-curated durable knowledge — injected every turn
 .memory/<hostname>/state.json   # app-managed, full extraction + decisions:
                                 # { schema: { nodes: PageNode[], extractedAt },  // snapshot
@@ -415,7 +431,7 @@ approve/reject, after every score — fire-and-forget POST, no save button.
 
 **Route** — `app/api/memory/route.ts`:
 - `GET  ?site=<hostname>` → `{ memory: string | null, state: State | null }`
-- `POST { site, memory? , state? }` → writes whichever is present, `mkdir -p` the folder.
+- `POST { site, memory?, context?, state? }` → writes whichever is present, `mkdir -p` the folder.
 - Path safety: `site` must match `/^[a-z0-9.-]+$/i` after `new URL(url).hostname` — reject
   anything else (no traversal). `.memory/` is gitignored.
 

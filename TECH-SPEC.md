@@ -211,6 +211,11 @@ overlay label in dev. Extraction functions are pure (DOM in → PageNode[] out) 
 **saved fixture HTML** of the test set (capture via the spike server) in the M5 smoke evals —
 fully deterministic, no network.
 
+**Leaf-node rule (resolves the slots-vs-nodes ambiguity):** `text` / `media` / `link` PageNodes
+exist ONLY for orphan content that no container claimed. Content inside a detected container is
+represented as that container's **slots**, not as separate nodes. `list_components` outlines
+containers (hero/section/card/collection) plus orphan leaves — never a node per paragraph.
+
 **Hero extraction (M1):**
 1. Candidates: `h1, h2, [role=heading]`, visible (`offsetParent !== null`), top edge within
    1.2 × viewport height.

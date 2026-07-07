@@ -66,8 +66,10 @@ Surface = **chat (left) + live preview (right)**.
 4. The user directs from chat ("make the hero speak to CTOs", "give me three different
    angles"). The agent explores via tools — transcript visible — **saves its recommendations as
    named variants** (`create_variant`) and proposes ops as **actionable cards, pre-scored by
-   the COM** (§4.4). Approve → applies to the active variant, live in the preview. A ranked
-   **variant comparison** (COM delta per variant, reasons) is one message away.
+   the COM** (§4.4). Approve → applies to the active variant, live in the preview. After saving
+   multiple variants the agent renders the **variant gallery inline in the chat** — one card
+   per variant (thumbnail, COM delta, segment tag), click to switch the preview; also available
+   any time by asking.
 5. Everything learned persists to **site memory** (§4.5): verdicts, the brief, learnings the
    agent chooses to keep. **Reopening the same URL resumes the project** — brief loads from
    disk, the agent picks up where it left off.
@@ -214,7 +216,7 @@ loop is just `apply_op`'s execute awaiting an approval promise the ProposalCard 
 | `BriefArtifact` | first turn | fields editable in place; edits update pinned context |
 | `ComponentCard` | agent mentions/reads a component | click → highlight + scroll it in the preview; "ask about this" seeds the composer |
 | `ProposalCard` | agent proposes an op | before/after slot diff + COM score badge + reasons; **Approve / Reject** buttons resolve `apply_op` |
-| `VariantGallery` | on request / after M3 | card per saved variant: best-effort thumbnail, COM delta, segment tag; click → switch preview |
+| `VariantGallery` | agent renders it inline after saving variants; also on request | card per saved variant: best-effort thumbnail, COM delta, segment tag; click → switch preview |
 
 Mechanism (thin, from the SDK): the loop streams typed message parts (text, tool call, tool
 result); `MessageList` is a switch from part type → block component — no bespoke protocol.

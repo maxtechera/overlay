@@ -348,11 +348,13 @@ type ChatBlock =
   | { kind: "tool"; toolCallId: string; name: string; input: unknown; output?: unknown }
   | { kind: "proposal"; opId: string; op: Op; score?: ComScore;
       status: "pending" | "approved" | "rejected" }
+  | { kind: "gallery" }                          // renders from the variants store; no payload
   | { kind: "brief" } | { kind: "error"; text: string };
 ```
 
 `MessageList` = switch on `block.kind` → Text / ToolCallRow / ProposalCard / BriefArtifact /
-Error. `apply_op`'s tool-call part opens a `proposal` block (not a `tool` block) — match on
+VariantGallery / Error. The loop pushes a `gallery` block after a turn in which
+`create_variant` was called (and whenever the user asks to compare). `apply_op`'s tool-call part opens a `proposal` block (not a `tool` block) — match on
 `toolName === "apply_op"`.
 
 ## 10. UX contracts

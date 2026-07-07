@@ -44,9 +44,14 @@ fix it or challenge this glossary in a PR.
 - **Warn-only regression checks (M3)** — post-apply fact re-computation: overflow, line growth,
   contrast < AA, lost alt → `warnings` on `op-applied`. Warns, never blocks; the blocking
   **verify loop** is M7.
-- **Export / snippet (M5)** — the variant as a standalone A/B script: ops JSON + applier +
-  50/50 **bucket** (persisted per visitor, exposed as `window.__overlayVariant`). We never
-  measure; the site's analytics reads the assignment.
+- **Segment** — one of 2–3 audiences the brief identifies, each with a *detectable* signal
+  (UTM/query param, referrer, device class). A variant may be aimed at a segment.
+- **Variant gallery** — the comparison surface: one card per saved variant (best-effort
+  thumbnail, COM delta, segment tag); clicking switches the preview.
+- **Export / snippet (M5)** — the variant as a standalone A/B script: ops JSON + applier. Two
+  modes: `ab` (50/50 **bucket**, persisted per visitor) or `segment` (applies only when the
+  segment's signal matches — rule-based). Assignment exposed as `window.__overlayVariant`;
+  we never measure — the site's analytics reads it.
 
 ## Judgment
 - **COM (Conversion Optimization Model)** — the independent verificator. Separate context,

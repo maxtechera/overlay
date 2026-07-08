@@ -46,9 +46,16 @@ export class IframeHost {
   private pending = new Map<string, PendingEntry>();
   private unsolicitedHandlers = new Set<UnsolicitedHandler>();
   private listener: (e: MessageEvent) => void;
+  private timeoutMs: number;
 
-  constructor(iframe: HTMLIFrameElement) {
+  /**
+   * @param opts.timeoutMs Echo timeout in ms (default 30_000 per TECH-SPEC §3). Overridable
+   *        so tests can exercise the timeout→reject path without waiting 30s; production
+   *        behavior is unchanged when omitted.
+   */
+  constructor(iframe: HTMLIFrameElement, opts?: { timeoutMs?: number }) {
     this.iframe = iframe;
+    this.timeoutMs = opts?.timeoutMs ?? 30_000;
     this.listener = this.handleMessage.bind(this);
     window.addEventListener("message", this.listener);
   }
@@ -59,7 +66,7 @@ export class IframeHost {
     return () => this.unsolicitedHandlers.delete(handler);
   }
 
-  /** Send a message to the iframe and await its echo (by requestId). 30s timeout. */
+  /** Send a message to the iframe and await its echo (by requestId). 30s timeout (default). */
   sendToIframe(msg: { t: string } & Record<string, unknown>): Promise<RuntimeMsg> {
     return new Promise((resolve, reject) => {
       const requestId = nanoid();
@@ -68,7 +75,7 @@ export class IframeHost {
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
         reject(new Error(`iframe timeout: ${msg.t} (${requestId})`));
-      }, 30_000);
+      }, this.timeoutMs);
 
       this.pending.set(requestId, { resolve, reject, timer });
 

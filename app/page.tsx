@@ -59,8 +59,17 @@ export default function Home() {
     const iframe = iframeRef.current;
     if (!iframe) return;
 
-    const host = new IframeHost(iframe);
+    // Test hook: ?hostTimeoutMs=<n> shortens the echo timeout so e2e can exercise the
+    // timeout→reject path without waiting the default 30s (TECH-SPEC §3). Omitted in
+    // normal use, so production behavior (30s default) is unchanged.
+    const timeoutParam = new URLSearchParams(window.location.search).get("hostTimeoutMs");
+    const timeoutMs = timeoutParam ? Number(timeoutParam) : undefined;
+
+    const host = new IframeHost(iframe, timeoutMs ? { timeoutMs } : undefined);
     hostRef.current = host;
+    // Test hook: expose the host so e2e specs can drive sendToIframe directly (to prove
+    // the timeout→reject path). Harmless in production — nothing reads this global.
+    (window as unknown as { __overlayHost?: IframeHost }).__overlayHost = host;
 
     const unsub = host.onUnsolicited((msg) => {
       if (msg.t === "ready") {

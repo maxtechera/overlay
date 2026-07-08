@@ -9,7 +9,7 @@
  * 4. Hardcoded update-content applies in <500ms and revert restores exactly @m1
  * 5. Clicking any link inside the preview does NOT navigate it away          @m1
  * 6. linear.app (bot-walled) → 422 surfaced as clean UI message, no hang   @m1
- * 7. Every postMessage carries a requestId; 30s timeout → error, not hang   @m1
+ * 7. Every postMessage carries a requestId; timeout → error, not hang       @m1
  */
 
 import { test, expect } from "@playwright/test";
@@ -275,54 +275,97 @@ test("6b · linear.app failure-lap site: handled cleanly (422 or no-hero), no ha
 });
 
 // ── 7. requestId on every postMessage; timeout → error, not hang ─────────────────
+//
+// Two real assertions, no theater:
+//  a) requestId presence: a capture listener installed INSIDE the iframe records every
+//     parent→iframe message it receives; after driving a solicited roundtrip (the overlay
+//     toggle), every captured parent→iframe message must carry a non-empty string
+//     requestId, and the iframe's reply (overlay-ack) must carry the same requestId back.
+//  b) timeout → error: the page loads with ?hostTimeoutMs=1500 (IframeHost's timeout is
+//     injectable for tests; production default stays 30s — see lib/protocol.ts). We use
+//     the exposed window.__overlayHost test hook to send a message type the runtime never
+//     answers, and assert the promise REJECTS with a timeout error — never hangs.
 
 test("7 · every postMessage carries requestId; timeout → error string not hang @m1", async ({
   page,
 }) => {
-  await page.goto("/");
+  // Shortened host timeout so the timeout path is testable without a real 30s wait.
+  await page.goto("/?hostTimeoutMs=1500");
 
-  // Intercept postMessages from parent → iframe
-  const sentMessages: unknown[] = [];
+  // Capture iframe→parent messages arriving in the parent window.
   await page.evaluate(() => {
-    const original = window.parent?.postMessage ?? window.postMessage;
-    // We can't intercept cross-frame postMessage directly from PW,
-    // but we can verify the protocol by checking the IframeHost behavior.
-    // Instead, test the timeout path: mount a fake iframe that never replies.
-    (window as unknown as Record<string, unknown>).__overlay_capture_msgs = [];
+    const w = window as unknown as { __fromIframe: unknown[] };
+    w.__fromIframe = [];
+    window.addEventListener("message", (e) => w.__fromIframe.push(e.data));
   });
 
-  // Navigate to the page and load maxtechera.dev to get an active host
   await page.getByTestId("url-input").fill("https://maxtechera.dev");
   await page.getByRole("button", { name: /analyze/i }).click();
 
-  // Wait for schema to appear (means handshake + extract worked with requestId)
   await expect(page.getByTestId("schema-msg").or(page.getByTestId("no-hero-msg"))).toBeVisible({
     timeout: 30_000,
   });
 
-  // Verify the iframe is same-origin (required for postMessage to work)
-  const iframeOrigin = await page.getByTestId("preview-iframe").evaluate(
-    (el: HTMLIFrameElement) => el.contentWindow?.location?.origin ?? ""
-  );
-  expect(iframeOrigin).toBe("http://localhost:3010");
+  // Capture parent→iframe messages arriving inside the iframe.
+  await page.getByTestId("preview-iframe").evaluate((el: HTMLIFrameElement) => {
+    const w = el.contentWindow as unknown as {
+      __fromParent: unknown[];
+      addEventListener: Window["addEventListener"];
+    };
+    w.__fromParent = [];
+    w.addEventListener("message", (e: MessageEvent) => w.__fromParent.push(e.data));
+  });
 
-  // Inspect a message from the iframe to verify requestId presence
-  // We do this by injecting a listener INSIDE the iframe:
-  const hasRequestId = await page.getByTestId("preview-iframe").evaluate(
-    (el: HTMLIFrameElement) => {
-      const doc = el.contentDocument;
-      if (!doc) return null;
-      // Check that the runtime is installed (post function exists as a side effect)
-      // The runtime defines boot + window.addEventListener("message") inside the iframe
-      return typeof doc.body !== "undefined";
+  // Drive a solicited roundtrip: overlay toggle (op-controls only render once a hero is
+  // detected; schema-msg visibility above guarantees that on maxtechera.dev).
+  const overlayBtn = page.getByTestId("overlay-btn");
+  await expect(overlayBtn).toBeVisible({ timeout: 5_000 });
+  await overlayBtn.click();
+  await page.waitForTimeout(500);
+
+  // (a) every parent→iframe message captured carries a non-empty string requestId.
+  const fromParent = (await page
+    .getByTestId("preview-iframe")
+    .evaluate(
+      (el: HTMLIFrameElement) =>
+        (el.contentWindow as unknown as { __fromParent: unknown[] }).__fromParent
+    )) as Array<Record<string, unknown>>;
+  expect(fromParent.length).toBeGreaterThan(0);
+  for (const m of fromParent) {
+    expect(typeof m.t).toBe("string");
+    expect(typeof m.requestId, `message ${JSON.stringify(m)} missing requestId`).toBe("string");
+    expect((m.requestId as string).length).toBeGreaterThan(0);
+  }
+
+  // ...and the solicited echo (overlay-ack) came back carrying a requestId.
+  const fromIframe = (await page.evaluate(
+    () => (window as unknown as { __fromIframe: unknown[] }).__fromIframe
+  )) as Array<Record<string, unknown>>;
+  const acks = fromIframe.filter((m) => m && m.t === "overlay-ack");
+  expect(acks.length).toBeGreaterThan(0);
+  for (const ack of acks) {
+    expect(typeof ack.requestId).toBe("string");
+  }
+
+  // (b) timeout path: send a message type the runtime will never answer, via the exposed
+  // host. With hostTimeoutMs=1500 the promise must REJECT with the timeout error — not hang.
+  const timeoutResult = await page.evaluate(async () => {
+    const host = (
+      window as unknown as {
+        __overlayHost: { sendToIframe: (m: { t: string }) => Promise<unknown> };
+      }
+    ).__overlayHost;
+    const t0 = performance.now();
+    try {
+      await host.sendToIframe({ t: "__no-such-message-type__" });
+      return { outcome: "resolved", ms: performance.now() - t0 };
+    } catch (e) {
+      return { outcome: "rejected", error: String(e), ms: performance.now() - t0 };
     }
-  );
-  expect(hasRequestId).toBe(true);
-
-  // Verify the protocol: the IframeHost generates requestIds. We can test this
-  // indirectly: a successful extract → schema proves the roundtrip (request + echo) worked.
-  // The actual requestId UUID format verification is done via unit test below.
-
-  // The schema result means the full roundtrip with requestId resolution worked
-  await expect(page.getByTestId("schema-msg").or(page.getByTestId("no-hero-msg"))).toBeVisible();
+  });
+  expect(timeoutResult.outcome).toBe("rejected");
+  expect((timeoutResult as { error: string }).error).toContain("iframe timeout");
+  // Rejected at ~the configured 1.5s timeout — proof it's the timer path, not an instant hang.
+  expect(timeoutResult.ms).toBeGreaterThan(1_000);
+  expect(timeoutResult.ms).toBeLessThan(10_000);
 });

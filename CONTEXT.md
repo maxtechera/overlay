@@ -25,7 +25,7 @@ fix it or challenge this glossary in a PR.
   LLM narrates it; it never invents findings.
 - **Detection ladder** — classification order: profile → framework → semantic → layout. Recorded
   per node as `via`.
-- **Profile** — per-hostname selector overrides (`lib/profiles.ts`); the sanctioned demo cheat.
+- **Profile** — per-hostname selector overrides (`lib/profiles.ts`); bootstrap scaffolding, deletable per site.
 - **SelectorRef / fingerprint** — css selector + normalized text prefix; re-find requires the
   fingerprint to match. **Drop-and-report on mismatch, never guess.** In-session ops use the
   live element map instead (fingerprints self-invalidate after our own edits).

@@ -229,7 +229,7 @@ prompt declares untrusted.
 
 **Detection ladder (deterministic, pure functions — PRD §4.2):** classification tries, in
 order: (1) `profiles.ts` per-hostname overrides (`{ "posthog.com": { hero: "<selector>", … } }`
-— the sanctioned demo cheat, one file, deletable per site); (2) framework fingerprints —
+— bootstrap overrides, one file, deletable per site); (2) framework fingerprints —
 detect once (`MuiButton-root|__NEXT_DATA__|class~="max-w-"` etc.), then MUI class names map
 straight to types (`MuiCard-root` → card, `MuiTypography-h1` → text/h1) and Tailwind patterns
 mark bands (`py-16+` sections, `container/max-w-* mx-auto` wrappers, `text-4xl+` headings,
@@ -418,7 +418,7 @@ removable chip.
 **Preview→chat:** click on an identified node → `selected` → composer gains a reference chip
 (`hero.headline`); sending prepends `[re: hero.headline]` to the user text.
 
-**Demo test set** (tune against these ONLY): `posthog.com` · `maxtechera.dev` (tier 2 —
+**Validation test set** (tune against these ONLY): `posthog.com` · `maxtechera.dev` (tier 2 —
 hydrated Next.js) · `astro.build`. Failure-lap site: `linear.app` (bot-walled — validated 422
 → clean error path).
 
@@ -430,7 +430,7 @@ cosmetic. Hard part #1's remaining unknown is only the *AI-loop* spike (step 0),
 
 ## 11. Site memory (M4, in the MVP) — file storage, Claude Code patterns
 
-**Storage** — one folder per site, written by a trivial API route (server fs, demo-grade):
+**Storage** — one folder per site, written by a trivial API route (server fs, single-user-grade):
 
 ```
 .memory/<hostname>/context.md   # USER-authored project context — injected every turn, UI-editable
@@ -498,7 +498,7 @@ targets).
       for (var a of ARMS){acc+=a.w; if(r<acc) return a.id;} return "control"; })();
     localStorage.setItem(KEY, bucket);
   }
-  if (location.hash === "#overlay-force-variant") bucket = "variant";   // console/demo path
+  if (location.hash === "#overlay-force-variant") bucket = "variant";   // console/preview path
   window.__overlayVariant = bucket;
   document.documentElement.setAttribute("data-overlay-variant", bucket);
   var arm = ARMS.find(function(a){return a.id===bucket;});

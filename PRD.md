@@ -1,4 +1,4 @@
-# PRD — Any-Site Variant Builder (working name: **Overlay**)
+# PRD — **Overlay**: an agentic harness for building optimized experiments on any live website
 
 Paste **any live URL** — a site we don't own — into a chat. The agent reads the page, produces a
 **Page Brief** (design system, brand language, ICP, pain points), and then proposes and applies
@@ -6,7 +6,7 @@ Paste **any live URL** — a site we don't own — into a chat. The agent reads 
 Optimization Model**. One script on someone else's site, variants for experiments — the
 website-optimization-platform model, not the CMS model where you own the build.
 
-**Optimized for: fastest path to a working demo, least code.** Every cut below is deliberate and
+**Optimized for: fastest path to a working product, least code.** Every cut below is deliberate and
 listed in §8 so we can say it out loud instead of getting caught by it.
 
 > ## HANDOFF STATUS (2026-07-07)
@@ -46,7 +46,7 @@ break layout.
 to typed ops against that schema, keep the human approving — and a scorer rides alongside as
 **signal, not decider**.
 
-**Meta-goal:** a Claude-Code-shaped harness for the open web — thin off-the-shelf loop, and
+**Identity:** a Claude-Code-shaped harness for the open web — thin off-the-shelf loop, and
 our substance in the tool belt, context strategy, and the surface the agent drives. Claude Code
 pointed at a repo; this pointed at a page you don't own.
 
@@ -90,7 +90,7 @@ component, end-to-end through every layer.
 ## 3. Goals / Acceptance / Non-goals
 
 **MVP goals**
-- Works on a real third-party URL (including one the audience pastes).
+- Works on a real third-party URL (including one a user pastes cold).
 - Page Brief artifact from the agent's first turn — proves "we understood the page *and* the
   business."
 - Agent proposes ops at block/card/section granularity, anchored to the brief + goal; every
@@ -151,9 +151,10 @@ pattern-mining lands with structural ops (M8). The runtime also reads SEO basics
 
 **Deterministic by requirement — pure code, no LLM, same input → same schema.** Detection is a
 **ladder of signals**, strongest first:
-1. **Per-site profiles (the sanctioned cheat):** a hostname → overrides map tuned for the demo
-   test set (posthog.com, maxtechera.dev, astro.build) — known selectors for hero/sections when
-   the generic pass under-performs. Clearly labeled demo scaffolding; deletable per site.
+1. **Per-site profiles (bootstrap overrides):** a hostname → overrides map tuned for the
+   validation test set (posthog.com, maxtechera.dev, astro.build) — known selectors for
+   hero/sections when the generic pass under-performs. Clearly labeled scaffolding; deletable
+   per site as the generic ladder improves.
 2. **Framework fingerprints:** detect once per page, then use framework-specific signals —
    Material-UI literally names components in classes (`MuiCard-root`, `MuiTypography-h1`,
    `MuiButton-root` → direct classification); Tailwind pages mark sections/prominence via
@@ -166,7 +167,7 @@ pattern-mining lands with structural ops (M8). The runtime also reads SEO basics
 
 Each node records which rung classified it (`via: "profile" | "framework" | "semantic" |
 "layout"`) — visible in the overlay label during dev, so mis-classification is debuggable at a
-glance, and honest in the demo ("generic pass got 80% of this page; the profile pinned the
+glance, and honest in the UI ("generic pass got 80% of this page; the profile pinned the
 rest").
 
 **Node facts + ADA audit — extraction that *understands*, not just labels (pillar 1).** Every
@@ -186,7 +187,7 @@ ratio vs its effective background, truncation, focusability, missing alt. Three 
 `{ css: "#id | [data-*] | structural path", fingerprint: "first 40 chars normalized" }`.
 Re-find requires the fingerprint to still match; **on mismatch: drop the op and report — never
 guess.** Valid schema ≠ valid layout: constrained ops bound *what* the agent touches, they don't
-guarantee rendering — that honesty stays in the demo script, and the verify loop (M7) is the fix.
+guarantee rendering — that honesty is stated in the UI, and the verify loop (M7) is the fix.
 
 ### 4.3 The agent — loop in the browser
 **One loop host, no abstraction layer:** Vercel AI SDK core (`ai` + `@ai-sdk/anthropic`) running
@@ -197,7 +198,7 @@ are plain async functions** — no server↔client tool bridge, no correlation i
 
 Auth decision (speed over subscription): **API key, not Claude-account OAuth.** The Agent SDK
 subscription path needs a server-side session + SSE tool bridge — roughly a third of the backend
-code for zero demo value. Demo usage costs a few dollars. Revisit post-MVP if at all.
+code for zero product value. Typical usage costs a few dollars. Revisit post-MVP if at all.
 
 Tools (each ~10 lines: zod schema + `sendToIframe` or store lookup):
 
@@ -324,9 +325,9 @@ last session") instead of silently trusted.
   verdicts with reasons are auto-appended by the app.
 - **Reopening the same URL resumes the project:** state.json rehydrates the brief and variant,
   memory.md rides in context — no re-extraction of understanding, the agent picks up where it
-  left off. This is the reason memory is MVP, not polish: without it the demo resets every
+  left off. This is the reason memory is MVP, not polish: without it the product resets every
   refresh.
-- Demo beats: reject with a reason → next proposal respects it → reload → *still* respects it;
+- Signature moments: reject with a reason → next proposal respects it → reload → *still* respects it;
   and `memory.md` is a real file you can open on screen — the "CLAUDE.md for your website"
   moment — the product matures with each site it works on.
 
@@ -360,7 +361,7 @@ The arc must end in something you can run. **Export** produces one self-containe
   zero extra code to *enable*, since the snippet is identical.
 - **Instant sanity path:** pasting the snippet into the browser console on the original live
   page applies the variant immediately (forced `variant` bucket) — the acceptance test and the
-  quickest demo of "this leaves the tool."
+  quickest proof that the variant leaves the tool.
 
 ### 4.8 Post-MVP mechanisms (specified so we don't improvise later)
 - **Verify loop (M7):** after apply → overflow/clipping + layout-shift + WCAG contrast checks in
@@ -515,7 +516,7 @@ same-day).
   after every apply, the runtime re-computes the target's facts and flags regressions on the
   op: overflow, line-count growth, contrast below WCAG AA, lost alt (no retries, no
   screenshots — the full verify loop stays M7; this is the honesty layer that protects the MVP
-  demo). *Pass:* on `posthog.com`, click **Build arms** on one plan card — the agent creates 2 named
+  experience). *Pass:* on `posthog.com`, click **Build arms** on one plan card — the agent creates 2 named
   arms for THAT experiment's target, pre-scored, reasons referencing the hypothesis; the
   gallery groups them under the experiment with a prior-labeled suggested allocation; clicking
   tabs visibly switches the page between Control/A/B/C; ask for "three different hero angles" —
@@ -537,13 +538,13 @@ same-day).
   and `window.__overlayVariant` reads correctly; a segment-mode export applies ONLY when its
   signal matches (e.g. `?utm_source=x`); fingerprint mismatch → drop-and-report, never guess.
 
-**MVP gate — full-experience E2E validation (run when M5 passes; this is also the demo
-dry-run):** one scripted session per test site (`posthog.com`, `maxtechera.dev`, `astro.build`),
+**MVP gate — full-experience E2E validation (run when M5 passes; this doubles as the
+reference-run recording session):** one scripted session per test site (`posthog.com`, `maxtechera.dev`, `astro.build`),
 each covering the entire arc — URL → brief → goal chip → 2+ proposals → approve one, reject one
 with a reason → score delta visible → reload → resume with all variants intact → switch tabs across them → **export the chosen one and
 apply it on the original live page**. Plus the failure lap: a bot-walled URL and a page with no
 detectable hero, both answered honestly in chat. **Record the best full run as a video** — it's
-the demo insurance and the proof artifact. MVP is "complete" only when this gate passes on all
+the canonical reference run and proof artifact. MVP is "complete" only when this gate passes on all
 three sites without touching code between runs.
 
 - **M6 — evals** (§4.6). *Pass:* `pnpm eval` runs extraction smoke tests on saved fixtures +
@@ -557,7 +558,7 @@ three sites without touching code between runs.
   post-gate pick together with M6** — the two artifacts that prove the judge is measured and
   the handoff is understood.
 
-## 8. Cuts + honest limits (say these out loud)
+## 8. Cuts + honest limits (stated, not hidden)
 Cut from MVP, deliberately: Claude-subscription auth (API key instead) · inline/manual editing
 (agent edits + approve only) · side-by-side simultaneous preview (variants compare by switching
 tabs + the ranked view, not split-screen iframes) · experiment timeline/scheduling view (the
@@ -566,7 +567,7 @@ plan is a list of actionable cards; calendars are M10 territory) · pre-flight r
 card/collection mining (M8) · screenshots + viewport checks (M7) · MutationObserver re-apply
 (static-page scope; hydrated sites may wipe patches — we say so) · 
 eval suites (M6, first post-MVP). NOT cut: site memory — it's M4, inside the MVP, because
-without it the demo resets on every refresh.
+without it the product resets on every refresh.
 Standing limits: heuristic extraction misclassifies on messy sites; client-side apply only (no
 SSR/SEO); proxy won't beat bot walls or auth walls; COM is a prior, not conversion data.
 **Deployment:** public, but **password-gated** — a shared password (`APP_PASSWORD`) unlocks an
@@ -574,7 +575,7 @@ httpOnly cookie that every API route requires (un-gated, the key proxy and inges
 to abuse). The exported snippet is unaffected — it's self-contained and calls no APIs. Locally,
 no password set = no gate.
 
-## 9. Why this shape (positioning)
+## 9. Design principles
 - **Any site, no CMS** → proxy+inject = the "one script you install" deployment model that
   real optimization platforms use.
 - **Variants as ops, human approves, scorer as signal-not-decider** → experimentation as the
@@ -617,7 +618,7 @@ components/ai-elements/          # installed via AI Elements CLI — editable so
 5. **Loop:** agent turn streams with `read_component` + `apply_op`; `MessageList` renders text
    parts + `ToolCallRow`s live; apply_op awaits the ProposalCard's approve.
 6. **The tick:** URL → mini-brief → instruction → pre-scored proposal → approve → hero changes
-   live. Demo it end-to-end. M1 done.
+   live. Run it end-to-end. M1 done.
 
 Builder rules: interfaces from §5 verbatim · no libraries beyond §6 (UI comes from AI Elements /
 shadcn — never hand-roll chat scaffolding) · tools return JSON/strings, never

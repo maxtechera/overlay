@@ -1,4 +1,4 @@
-# Overlay — any-site A/B variant builder, driven by an agent
+# Overlay — an agentic harness for building optimized experiments on any live website
 
 Paste **any live URL** into a chat. The agent reads the page, produces a **Page Brief** (design
 system, brand language, ICP, pain points), then proposes and applies **A/B test variants** to a

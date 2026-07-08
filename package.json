@@ -3,10 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/build-runtime.mjs",
     "dev": "next dev -p 3010",
+    "prebuild": "node scripts/build-runtime.mjs",
     "build": "next build",
     "start": "next start -p 3010",
     "typecheck": "tsc --noEmit",
+    "pretest:e2e": "node scripts/build-runtime.mjs",
     "test:e2e": "playwright test",
     "com:check": "node --env-file=.env.local scripts/com-check.mjs"
   },
@@ -24,6 +27,7 @@
     "@types/node": "^22.10.7",
     "@types/react": "^19.0.7",
     "@types/react-dom": "^19.0.3",
+    "esbuild": "^0.28.1",
     "typescript": "^5.7.3"
   }
 }

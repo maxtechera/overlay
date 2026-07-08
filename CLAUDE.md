@@ -49,8 +49,10 @@ contract; read it fully before touching anything.
 - Tools return JSON/strings; never throw across postMessage; every postMessage carries a
   `requestId`.
 - `lib/com.ts` imports nothing from `agent.ts` or stores (generator ≠ evaluator).
-- Tune extraction/prompts ONLY against the test set: `posthog.com` · `maxtechera.dev` ·
-  `astro.build` (failure-lap: `linear.app`, bot-walled). `scripts/*.mjs` are validation evidence — keep them working.
+- Tune extraction/prompts against **`maxtechera.dev` ONLY** until the MVP gate is green
+  (breadth = issue #18: posthog.com, astro.build). Failure paths use deterministic fixtures,
+  not live sites (external sites drift). `scripts/*.mjs` are validation evidence — keep them
+  working.
 - Don't edit PRD.md/TECH-SPEC.md unilaterally: propose the change on the issue, then a
   docs-only PR.
 
@@ -107,4 +109,8 @@ size (spend anomaly). The board never advances past a red gate; nothing is ever 
 - 2026-07-07 `@ai-sdk/anthropic@4` is ai@7-only → `UnsupportedModelVersionError`; pin @3 (step0 spike).
 - 2026-07-07 `text-delta` parts carry `.text` not `.delta` (vercel/ai#8756) — read both.
 - 2026-07-07 a validation-set site ran its own A/B optimizer, rotating its hero mid-session → ingest strips third-party experiment scripts.
+- 2026-07-08 external sites are not stable fixtures: linear.app dropped its bot wall for Chrome UAs within a day of validation — failure-path tests use deterministic local fixtures/markers instead.
 - 2026-07-07 `<base href>` alone resolves all relative/root-relative URLs — no absolutization pass; but it makes every link click navigate away → runtime click interceptor is mandatory.
+- 2026-07-08 an inconsistent `package.json`/`pnpm-lock.yaml` (locally-built gitignored artifact, uncommitted manifest dep) → CI `frozen-lockfile` failure — verify `pnpm install --frozen-lockfile` before pushing (PR #17).
+- 2026-07-08 a branch CONFLICTING with master produces ZERO `pull_request` CI runs (GitHub can't build the merge ref) — `check-runs total_count:0` means merge master, not "Actions outage"; check `gh pr view --json mergeable` first (PR #17).
+- 2026-07-08 perf specs must time the product's real round-trip via in-app `performance.now()` marks, never Playwright `.click()` actionability or `expect().toBeVisible()` poll granularity inside the timed window — both are test-harness overhead, not product latency (PR #17).

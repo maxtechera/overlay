@@ -108,11 +108,11 @@ component, end-to-end through every layer.
   edge-inject), visitors get bucketed, the test group gets the variant. The MVP's output is an
   experiment, not a mockup.
 
-**Acceptance bar** (dev test set in TECH-SPEC §10, proxy-validated)
-1. A genuinely static page: full flow.
-2. A hydrated Next.js marketing site (`maxtechera.dev` is this tier, not tier 1): text/CTA ops
-   work post-hydration; if the site's JS wipes a patch, the runtime detects and reports it.
-3. Bot-walled site: fails fast with a clear error in chat — predicted failure is a pass.
+**Acceptance bar — one site first, then breadth.** The MVP slice runs end-to-end on
+**`maxtechera.dev`** (hydrated Next.js — the harder tier; if the site's JS wipes a patch, the
+runtime detects and reports it). Multi-site support (`posthog.com`, `astro.build`, bot-wall /
+no-hero failure laps on other sites) is reviewed AFTER the full slice is green — issue #18.
+Error paths still hold on day one: a non-ingestable URL fails fast with a clear chat message.
 
 **Non-goals (MVP):** production SDK · multi-tenant · real traffic/experiments · SSR of variants ·
 perfect extraction. §8 has the full cut list.
@@ -501,7 +501,7 @@ same-day).
   artifact, goal chips, **settings bar** (model picker + thinking toggle) and the **project
   context panel** (user-authored, in every system prompt; localStorage until M4 persists it),
   **Experiment Plan block** (6–10 proposals, every target a real extracted
-  path, every hypothesis grounded in the brief), two-way click↔chat wiring. *Pass:* on all 3 test sites — overlay
+  path, every hypothesis grounded in the brief), two-way click↔chat wiring. *Pass:* on `maxtechera.dev` — overlay
   identifies hero + ≥3 sections + cards where they exist; `ComponentCard`/overlay show computed
   facts (lines · fontPx · contrast) that spot-check TRUE against devtools; the brief renders
   with every field grounded (no invented claims on spot check) including an ADA findings list
@@ -516,7 +516,7 @@ same-day).
   after every apply, the runtime re-computes the target's facts and flags regressions on the
   op: overflow, line-count growth, contrast below WCAG AA, lost alt (no retries, no
   screenshots — the full verify loop stays M7; this is the honesty layer that protects the MVP
-  experience). *Pass:* on `posthog.com`, click **Build arms** on one plan card — the agent creates 2 named
+  experience). *Pass:* on `maxtechera.dev`, click **Build arms** on one plan card — the agent creates 2 named
   arms for THAT experiment's target, pre-scored, reasons referencing the hypothesis; the
   gallery groups them under the experiment with a prior-labeled suggested allocation; clicking
   tabs visibly switches the page between Control/A/B/C; ask for "three different hero angles" —
@@ -539,13 +539,14 @@ same-day).
   signal matches (e.g. `?utm_source=x`); fingerprint mismatch → drop-and-report, never guess.
 
 **MVP gate — full-experience E2E validation (run when M5 passes; this doubles as the
-reference-run recording session):** one scripted session per test site (`posthog.com`, `maxtechera.dev`, `astro.build`),
-each covering the entire arc — URL → brief → goal chip → 2+ proposals → approve one, reject one
+reference-run recording session):** one scripted session on **`maxtechera.dev`** covering the
+entire arc — URL → brief → goal chip → 2+ proposals → approve one, reject one
 with a reason → score delta visible → reload → resume with all variants intact → switch tabs across them → **export the chosen one and
 apply it on the original live page**. Plus the failure lap: a bot-walled URL and a page with no
 detectable hero, both answered honestly in chat. **Record the best full run as a video** — it's
-the canonical reference run and proof artifact. MVP is "complete" only when this gate passes on all
-three sites without touching code between runs.
+the canonical reference run and proof artifact. MVP is "complete" when this gate passes on `maxtechera.dev` without touching code between
+runs. **Breadth comes after the slice:** issue #18 re-runs the gate on `posthog.com` +
+`astro.build` and tunes profiles/ladder for them.
 
 - **M6 — evals** (§4.6). *Pass:* `pnpm eval` runs extraction smoke tests on saved fixtures +
   the 6-case COM sanity suite, exit 0; a deliberately broken fixture fails it.

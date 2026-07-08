@@ -67,6 +67,10 @@ Milestones are delivered autonomously by a three-role loop. Models are fixed by 
   workers on overlapping files.
 - **Workers — Sonnet (`overlay-worker`).** One issue → one branch → one PR with per-criterion
   evidence. Full harness compliance. They never merge and never pick their own work.
+  **Isolation is mandatory: every worker and every reviewer operates in its OWN git worktree**
+  (`git worktree add /tmp/<role>-<issue> <branch>`), never in the main checkout — two agents in
+  one checkout cross-contaminate commits (it happened: PR #16 swept in PR #17's uncommitted
+  hooks). Symlink node_modules from the main checkout; remove the worktree when done.
 - **Advisor — Fable (`overlay-advisor`).** Consulted mid-issue for hard calls; adversarial
   review before EVERY merge (generator ≠ evaluator applies to code too). Read/run only.
 

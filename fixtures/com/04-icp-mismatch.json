@@ -1,0 +1,54 @@
+{
+  "description": "ICP mismatch: copy pivots to wrong audience (enterprise procurement vs developer trial). Expect negative delta — variant misses the ICP even if it sounds 'professional'.",
+  "expectedSign": "negative",
+  "input": {
+    "brief": {
+      "seo": {
+        "title": "PostHog — Product Analytics",
+        "headingOutline": [{ "level": 1, "text": "Product analytics built for engineers" }]
+      },
+      "icp": "Individual engineers and small engineering teams at startups who self-evaluate and adopt tools without a procurement process",
+      "problemStatement": "Engineers at startups can't get analytics that let them query raw events without waiting for a data team or fighting vendor lock-in.",
+      "valueProp": "Open-source analytics engineers actually control — self-host or cloud, full event access, no sampling, no vendor dependencies.",
+      "painPoints": {
+        "addressed": ["vendor lock-in", "data sampling"],
+        "missed": ["time to first insight", "integration complexity"]
+      },
+      "objections": {
+        "handled": ["open source means you own your data"],
+        "unhandled": ["scale — will it handle our event volume", "ops burden of self-hosting"]
+      },
+      "proofAudit": { "present": ["50k teams"], "missing": ["engineering case studies", "GitHub stars"] },
+      "ctaAudit": [{ "path": "hero.cta", "text": "Get started free", "intentStage": "activation" }],
+      "a11yAudit": [],
+      "segments": [
+        { "name": "engineers", "signal": "utm_source=hn" },
+        { "name": "founders", "signal": "utm_source=yc" }
+      ],
+      "suggestedGoals": ["increase self-serve trial signups", "reduce time-to-first-event"],
+      "tone": "direct, no-fluff, developer-first",
+      "lang": "en"
+    },
+    "goal": "increase self-serve trial signups from individual engineers",
+    "control": [
+      {
+        "path": "hero.headline",
+        "slots": { "headline": "Product analytics built for engineers — own your data, query it in SQL" }
+      },
+      {
+        "path": "hero.cta",
+        "slots": { "text": "Start free", "href": "/signup" }
+      }
+    ],
+    "variant": [
+      {
+        "path": "hero.headline",
+        "slots": { "headline": "Enterprise-grade analytics with dedicated support, SLAs, and procurement-friendly contracts" }
+      },
+      {
+        "path": "hero.cta",
+        "slots": { "text": "Request a demo", "href": "/demo" }
+      }
+    ]
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "description": "Null brief: no brief provided (brief is null). Variant is clearly better copy even without brief context. COM must handle null brief gracefully and still return a score. Expect positive delta.",
+  "expectedSign": "positive",
+  "input": {
+    "brief": null,
+    "goal": "increase newsletter signups",
+    "control": [
+      {
+        "path": "hero.headline",
+        "slots": { "headline": "Sign up for updates" }
+      },
+      {
+        "path": "hero.cta",
+        "slots": { "text": "Submit", "href": "/subscribe" }
+      }
+    ],
+    "variant": [
+      {
+        "path": "hero.headline",
+        "slots": { "headline": "Weekly tactics that helped 12,000 engineers ship faster — join free" }
+      },
+      {
+        "path": "hero.cta",
+        "slots": { "text": "Get the weekly newsletter", "href": "/subscribe" }
+      }
+    ]
+  }
+}

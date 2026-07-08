@@ -1,0 +1,62 @@
+{
+  "description": "Obviously worse: strong specific copy → vague, cliché, no value prop, weak CTA. Expect negative delta.",
+  "expectedSign": "negative",
+  "input": {
+    "brief": {
+      "seo": {
+        "title": "PostHog — Product Analytics",
+        "headingOutline": [{ "level": 1, "text": "Product analytics built for engineers" }]
+      },
+      "icp": "B2B SaaS engineers and PMs at early-stage startups who want self-hosted or cloud analytics without black-box vendor lock-in",
+      "problemStatement": "Teams lose visibility into user behavior when they can't query raw events or trust that vendor won't sell their data.",
+      "valueProp": "Open-source product analytics you can host yourself or run in the cloud — full SQL access, no sampling.",
+      "painPoints": {
+        "addressed": ["vendor lock-in", "data sampling"],
+        "missed": ["GDPR compliance", "self-serve setup time"]
+      },
+      "objections": {
+        "handled": ["open source so you can audit"],
+        "unhandled": ["how long does integration take", "what happens to data if we shut down"]
+      },
+      "proofAudit": { "present": ["trusted by 50k companies"], "missing": ["case studies", "time-to-value stat"] },
+      "ctaAudit": [{ "path": "hero.cta", "text": "Get started", "intentStage": "activation" }],
+      "a11yAudit": [],
+      "segments": [
+        { "name": "engineers", "signal": "utm_source=hn" },
+        { "name": "PMs", "signal": "utm_source=producthunt" }
+      ],
+      "suggestedGoals": ["increase trial signups", "improve hero→signup conversion"],
+      "tone": "direct, technical, no-fluff",
+      "lang": "en"
+    },
+    "goal": "increase trial signups from engineer ICP",
+    "control": [
+      {
+        "path": "hero.headline",
+        "slots": { "headline": "Product analytics built for engineers — own your data, query it in SQL" }
+      },
+      {
+        "path": "hero.subhead",
+        "slots": { "subhead": "Open-source, self-hostable. Trusted by 50,000+ teams. Setup in under 5 minutes." }
+      },
+      {
+        "path": "hero.cta",
+        "slots": { "text": "Start free — deploy in 5 min", "href": "/signup" }
+      }
+    ],
+    "variant": [
+      {
+        "path": "hero.headline",
+        "slots": { "headline": "Welcome to our platform!" }
+      },
+      {
+        "path": "hero.subhead",
+        "slots": { "subhead": "We help businesses grow and succeed with innovative solutions." }
+      },
+      {
+        "path": "hero.cta",
+        "slots": { "text": "Click here", "href": "/signup" }
+      }
+    ]
+  }
+}

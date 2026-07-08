@@ -162,6 +162,14 @@ export default function Home() {
 
   // ── hardcoded op pipeline (Step 4) ─────────────────────────────────────────
   const handleApplyOp = useCallback(async () => {
+    // Real in-app latency for the M1a "<500ms apply" criterion (PRD.md:497,
+    // TECH-SPEC.md:543): approve-handler-start -> op-applied received. The iframe
+    // runtime mutates the DOM before it replies op-applied, so this is a conservative
+    // upper bound on visible-change latency — it excludes Playwright's own
+    // click-actionability and toBeVisible() polling overhead, neither of which is
+    // part of the product's round-trip. Test-only read; harmless in production.
+    const t0 = performance.now();
+
     const host = hostRef.current;
     if (!host || !iframeReady) return;
 
@@ -184,6 +192,8 @@ export default function Home() {
       const res = await host.sendToIframe({ t: "apply-op", opId, op });
       if (res.t === "op-applied" && res.ok) {
         setOpState({ state: "applied", opId, prevText: originalText, newText });
+        (window as unknown as { __overlayApplyMs?: number }).__overlayApplyMs =
+          performance.now() - t0;
       } else {
         const error = res.t === "op-applied" ? (res.error ?? "unknown") : "unexpected-msg";
         setOpState({ state: "error", reason: error });

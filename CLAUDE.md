@@ -111,3 +111,6 @@ size (spend anomaly). The board never advances past a red gate; nothing is ever 
 - 2026-07-07 a validation-set site ran its own A/B optimizer, rotating its hero mid-session → ingest strips third-party experiment scripts.
 - 2026-07-08 external sites are not stable fixtures: linear.app dropped its bot wall for Chrome UAs within a day of validation — failure-path tests use deterministic local fixtures/markers instead.
 - 2026-07-07 `<base href>` alone resolves all relative/root-relative URLs — no absolutization pass; but it makes every link click navigate away → runtime click interceptor is mandatory.
+- 2026-07-08 an inconsistent `package.json`/`pnpm-lock.yaml` (locally-built gitignored artifact, uncommitted manifest dep) → CI `frozen-lockfile` failure — verify `pnpm install --frozen-lockfile` before pushing (PR #17).
+- 2026-07-08 a branch CONFLICTING with master produces ZERO `pull_request` CI runs (GitHub can't build the merge ref) — `check-runs total_count:0` means merge master, not "Actions outage"; check `gh pr view --json mergeable` first (PR #17).
+- 2026-07-08 perf specs must time the product's real round-trip via in-app `performance.now()` marks, never Playwright `.click()` actionability or `expect().toBeVisible()` poll granularity inside the timed window — both are test-harness overhead, not product latency (PR #17).

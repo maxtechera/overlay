@@ -11,14 +11,21 @@ import type { PageNode } from "./types";
 // ── Message types ──────────────────────────────────────────────────────────────
 
 export type ParentMsg =
-  | { t: "extract"; requestId: string }
+  // hostnameOverride is a debug-only hook (e2e specs) — see lib/runtime.ts's "extract" handler.
+  | { t: "extract"; requestId: string; hostnameOverride?: string }
   | { t: "overlay"; on: boolean; requestId: string }
   | { t: "apply-op"; opId: string; op: import("./types").Op; requestId: string }
   | { t: "revert-op"; opId: string; requestId: string };
 
 export type RuntimeMsg =
   | { t: "ready" }
-  | { t: "schema"; nodes: PageNode[]; seo: import("./types").PageBrief["seo"]; requestId?: string }
+  | {
+      t: "schema";
+      nodes: PageNode[];
+      seo: import("./types").PageBrief["seo"];
+      a11yAudit: import("./types").PageBrief["a11yAudit"];
+      requestId?: string;
+    }
   | { t: "op-applied"; opId: string; ok: boolean; error?: string; warnings?: string[]; requestId?: string }
   | { t: "op-wiped"; opId: string }
   | { t: "op-reverted"; opId: string; requestId?: string }

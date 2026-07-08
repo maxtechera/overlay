@@ -1,0 +1,55 @@
+{
+  "description": "Identical: control and variant are the same content. Expect |delta| ≤ 0.05.",
+  "expectedSign": "zero",
+  "maxAbsDelta": 0.05,
+  "input": {
+    "brief": {
+      "seo": {
+        "title": "Astro — Build faster websites",
+        "headingOutline": [{ "level": 1, "text": "The web framework for content-driven websites" }]
+      },
+      "icp": "Web developers building content-heavy sites (blogs, docs, marketing) who want fast page loads and flexible framework integrations",
+      "problemStatement": "JS-heavy frameworks ship too much JavaScript for content sites, hurting performance and SEO.",
+      "valueProp": "Ship less JavaScript by default. Use any UI framework — React, Vue, Svelte — or none.",
+      "painPoints": {
+        "addressed": ["JavaScript bloat", "slow performance"],
+        "missed": ["learning curve", "ecosystem maturity vs Next.js"]
+      },
+      "objections": {
+        "handled": ["works with your existing stack"],
+        "unhandled": ["production-ready?", "community size"]
+      },
+      "proofAudit": { "present": ["used by NASA, Google, etc."], "missing": ["download stats", "benchmark numbers"] },
+      "ctaAudit": [{ "path": "hero.cta", "text": "Get Started", "intentStage": "activation" }],
+      "a11yAudit": [],
+      "segments": [
+        { "name": "bloggers", "signal": "utm_source=dev.to" },
+        { "name": "agency devs", "signal": "referrer=agency" }
+      ],
+      "suggestedGoals": ["increase npm installs", "grow docs traffic"],
+      "tone": "friendly, developer-focused, clear",
+      "lang": "en"
+    },
+    "goal": "increase npm installs from content-site developers",
+    "control": [
+      {
+        "path": "hero.headline",
+        "slots": { "headline": "The web framework for content-driven websites" }
+      },
+      {
+        "path": "hero.subhead",
+        "slots": { "subhead": "Astro powers the world's fastest marketing sites, blogs, e-commerce websites, and more." }
+      }
+    ],
+    "variant": [
+      {
+        "path": "hero.headline",
+        "slots": { "headline": "The web framework for content-driven websites" }
+      },
+      {
+        "path": "hero.subhead",
+        "slots": { "subhead": "Astro powers the world's fastest marketing sites, blogs, e-commerce websites, and more." }
+      }
+    ]
+  }
+}

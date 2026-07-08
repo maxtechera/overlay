@@ -65,9 +65,16 @@ export const makeTools = (deps: Deps) => ({
       if (!approved) return { applied: false, reason: "rejected by user" }; // resolve, NEVER throw
 
       const opId = nanoid();
-      const res = await deps.send({ t: "apply-op", opId, op: fullOp });
-      if (res.t !== "op-applied") return { applied: false, reason: "unexpected-response" };
-      return res.ok ? { applied: true, opId, warnings: res.warnings } : { applied: false, reason: res.error };
+      // deps.send rejects on the IframeHost 30s timeout or an "iframe not ready" send —
+      // convert to a string result; a tool must NEVER throw across the postMessage boundary
+      // (CLAUDE.md hard rule / TECH-SPEC §3), else the loop wedges the ProposalCard.
+      try {
+        const res = await deps.send({ t: "apply-op", opId, op: fullOp });
+        if (res.t !== "op-applied") return { applied: false, reason: "unexpected-response" };
+        return res.ok ? { applied: true, opId, warnings: res.warnings } : { applied: false, reason: res.error };
+      } catch (e) {
+        return { applied: false, reason: e instanceof Error ? e.message : String(e) };
+      }
     },
   }),
 
@@ -75,8 +82,12 @@ export const makeTools = (deps: Deps) => ({
     description: "Undo a previously applied op.",
     inputSchema: z.object({ opId: z.string() }),
     execute: async ({ opId }) => {
-      const res = await deps.send({ t: "revert-op", opId });
-      return res.t === "op-reverted" ? { reverted: true } : { reverted: false };
+      try {
+        const res = await deps.send({ t: "revert-op", opId });
+        return res.t === "op-reverted" ? { reverted: true } : { reverted: false, error: "unexpected-response" };
+      } catch (e) {
+        return { reverted: false, error: e instanceof Error ? e.message : String(e) };
+      }
     },
   }),
 });

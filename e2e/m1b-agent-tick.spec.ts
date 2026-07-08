@@ -9,9 +9,10 @@
 
 import { test, expect, type Page } from "@playwright/test";
 
-// Guard: every test in this file is @ai — must skip cleanly without ANTHROPIC_API_KEY.
+// Guard: @ai tests need a live model — skip cleanly without ANTHROPIC_API_KEY (CLAUDE.md
+// harness rule). Keyless @m1 tests (e.g. 2b, the runtime href-write path) still run in CI.
 test.beforeEach(({}, testInfo) => {
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (testInfo.tags.includes("@ai") && !process.env.ANTHROPIC_API_KEY) {
     testInfo.skip();
   }
 });
@@ -93,9 +94,11 @@ test("2 · instruction → diff ProposalCard → Approve → hero changes live @
   test.setTimeout(150_000);
   await loadAndWaitForFirstTurn(page);
 
-  // A single, unambiguous, single-slot instruction — deliberately not compound ("...and point
-  // the CTA at /demo") to keep the proposal count deterministic (1) rather than racing however
-  // many apply_op calls a compound instruction happens to produce.
+  // A single, unambiguous copy change — proves the propose→approve→live-apply loop against
+  // the real model. (The tuning-target hero, maxtechera.dev, is headline+subhead only — it has
+  // NO extracted CTA slot — so the criterion's "point the CTA at /demo" half can't be driven
+  // against THIS hero by the agent; the runtime href-write path that clause exercises is
+  // covered deterministically + keylessly by test 2b below on a real link node. See #13.)
   await sendMessage(page, "Change the hero headline text to exactly: 'Ship faster with Overlay'. Propose it now.");
 
   const proposal = page.getByTestId("proposal-card").first();
@@ -109,12 +112,75 @@ test("2 · instruction → diff ProposalCard → Approve → hero changes live @
   await expect(proposal).toHaveAttribute("data-proposal-status", "approved", { timeout: 15_000 });
   console.log(`[m1b] approve -> applied: ${Date.now() - t0}ms`);
 
-  // The live preview reflects the change — this is the criterion. (Best-effort: let the turn
-  // keep wrapping up in the background rather than blocking the test on it.)
   const headlineNow = await page
     .getByTestId("preview-iframe")
     .evaluate((el: HTMLIFrameElement) => el.contentDocument?.querySelector("h1, h2, [role=heading]")?.textContent?.trim() ?? "");
   expect(headlineNow).toContain("Ship faster with Overlay");
+});
+
+// ── 2b. Runtime href-write path: retarget a link slot (+ exact revert) ───────────
+// Keyless (@m1, no @ai): drives an update-content op with an `href` slot through the SAME
+// __overlayHost.sendToIframe path apply_op uses, on a real link node — covering the runtime
+// applySlots href branch (the CTA-retarget mechanism a criterion-2 "point the CTA at /demo"
+// would use, and a core capability the M5 export relies on). Runs on every CI PR, no key.
+
+test("2b · update-content on a link slot retargets the anchor href, revert restores @m1", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("url-input").fill("https://maxtechera.dev");
+  await page.getByRole("button", { name: /analyze/i }).click();
+  await expect(page.getByTestId("op-controls")).toBeVisible({ timeout: 30_000 });
+
+  const result = await page.evaluate(async () => {
+    const host = (
+      window as unknown as { __overlayHost: { sendToIframe: (m: Record<string, unknown>) => Promise<Record<string, unknown>> } }
+    ).__overlayHost;
+    const schema = (
+      window as unknown as {
+        __overlaySchemaStore: {
+          getState: () => { order: string[]; node: (id: string) => { id: string; slots: Record<string, { href?: string }> } | undefined };
+        };
+      }
+    ).__overlaySchemaStore;
+
+    // First node carrying an href-bearing slot (maxtechera.dev's logo/card links qualify).
+    let targetId: string | null = null;
+    let slotName = "";
+    for (const id of schema.getState().order) {
+      const n = schema.getState().node(id);
+      if (!n) continue;
+      const entry = Object.entries(n.slots).find(([, v]) => typeof v.href === "string");
+      if (entry) {
+        targetId = n.id;
+        slotName = entry[0];
+        break;
+      }
+    }
+    if (!targetId) throw new Error("no href-bearing slot in schema — fixture assumption broken");
+
+    const doc = (document.querySelector('[data-testid="preview-iframe"]') as HTMLIFrameElement).contentDocument!;
+    const demoCount = () =>
+      Array.from(doc.querySelectorAll("a")).filter((a) => {
+        const h = a.getAttribute("href") ?? (a as HTMLAnchorElement).href ?? "";
+        return h.endsWith("/demo") || h.endsWith("/demo/");
+      }).length;
+
+    const before = demoCount();
+    const opId = "e2e-href-op";
+    const applied = await host.sendToIframe({
+      t: "apply-op",
+      opId,
+      op: { op: "update-content", target: targetId, slots: { [slotName]: { href: "/demo" } }, rationale: "e2e href-write regression" },
+    });
+    const after = demoCount();
+    const reverted = await host.sendToIframe({ t: "revert-op", opId });
+    const restored = demoCount();
+    return { appliedOk: applied.ok, slotName, before, after, revertedT: reverted.t, restored };
+  });
+
+  expect(result.appliedOk).toBe(true);
+  expect(result.after, "an anchor now points at /demo after the href op").toBeGreaterThan(result.before);
+  expect(result.revertedT).toBe("op-reverted");
+  expect(result.restored, "revert restores the original hrefs exactly").toBe(result.before);
 });
 
 // ── 3. Reject → {applied:false}; agent acknowledges, asks direction, never throws ──

@@ -100,6 +100,17 @@ export async function runTurn(userText: string, send: SendToIframe): Promise<voi
           }
           break;
         }
+        case "tool-error": {
+          // A tool that threw across the boundary (defense-in-depth — tools.ts already
+          // converts send-rejects to string results). Close the block with error status so
+          // the ToolCallRow/ProposalCard never wedges "running"/"pending" forever.
+          const p = part as { toolCallId: string; toolName?: string; error: unknown };
+          const reason = p.error instanceof Error ? p.error.message : String(p.error);
+          if (proposalCalls.has(p.toolCallId)) store.closeProposal(p.toolCallId, { applied: false, reason });
+          else store.closeTool(p.toolCallId, { error: reason });
+          store.pushError(`tool ${p.toolName ?? ""} failed: ${reason}`);
+          break;
+        }
         case "error":
           store.pushError(String((part as { error: unknown }).error));
           break;

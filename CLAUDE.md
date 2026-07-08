@@ -54,6 +54,30 @@ contract; read it fully before touching anything.
 - Don't edit PRD.md/TECH-SPEC.md unilaterally: propose the change on the issue, then a
   docs-only PR.
 
+## AFK orchestration (fire-and-forget delivery — baked into `.claude/agents/`)
+
+Milestones are delivered autonomously by a three-role loop. Models are fixed by role:
+
+- **Orchestrator — Fable.** Owns the board; never implements. Loop: pick the next issue per the
+  dependency lanes (PRD handoff block) → spawn an `overlay-worker` → when its PR is up, spawn an
+  `overlay-advisor` review → drive the fix loop (worker addresses BLOCKERS; max 2 review
+  rounds) → **merge only when** CI green (typecheck · e2e · harness-lint) AND every acceptance
+  item has evidence AND advisor verdict = approve → squash-merge, close issue, append any
+  Learnings, pick the next issue. Runs parallel lanes only where the graph allows; never two
+  workers on overlapping files.
+- **Workers — Sonnet (`overlay-worker`).** One issue → one branch → one PR with per-criterion
+  evidence. Full harness compliance. They never merge and never pick their own work.
+- **Advisor — Fable (`overlay-advisor`).** Consulted mid-issue for hard calls; adversarial
+  review before EVERY merge (generator ≠ evaluator applies to code too). Read/run only.
+
+**AFK stop conditions** (halt the lane, write a handoff comment on the issue, move to an
+independent lane if one exists): a pass won't go green after 3 distinct approaches · a spec
+would need weakening · a missing dependency or secret · one issue burning wildly beyond its
+size (spend anomaly). The board never advances past a red gate; nothing is ever force-merged.
+
+**Kickoff order** (current board): #1 and #15 immediately (independent); when #1 merges →
+#13 ∥ #2; then #14 → #3 → #4 → #10 → gate #5. #12 any time after #13.
+
 ## The harness (CI-enforced — this is how we build)
 - **Every milestone pass is executable.** Encode it as Playwright specs in `e2e/`, tagged
   `@m1`…`@m8` (+ `@smoke` for keyless always-run checks). `pnpm test:e2e` runs them. A milestone

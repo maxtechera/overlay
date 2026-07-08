@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm:*)", "Bash(corepack:*)", "Bash(node:*)", "Bash(npx:*)",
+      "Bash(git status:*)", "Bash(git add:*)", "Bash(git commit:*)", "Bash(git push:*)",
+      "Bash(git checkout:*)", "Bash(git switch:*)", "Bash(git branch:*)", "Bash(git diff:*)",
+      "Bash(git log:*)", "Bash(git fetch:*)", "Bash(git merge:*)", "Bash(git stash:*)",
+      "Bash(gh issue:*)", "Bash(gh pr:*)", "Bash(gh run:*)", "Bash(gh api:*)",
+      "Bash(mkdir:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(grep:*)", "Bash(rg:*)"
+    ],
+    "deny": []
+  }
+}

@@ -7,7 +7,11 @@ import { test, expect } from "@playwright/test";
 
 test("shell renders @smoke", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Overlay" })).toBeVisible();
+  // The two-pane shell (M1a) renders the brand name in the topbar and the URL input
+  await expect(page.getByTestId("url-input")).toBeVisible();
+  // The brand name "over.lay" appears in the topbar
+  await expect(page.locator(".brand")).toBeVisible();
+  await expect(page.locator(".brand")).toContainText("lay");
 });
 
 test("ai specs skip cleanly without a key @smoke", async () => {

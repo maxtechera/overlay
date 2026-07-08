@@ -1,22 +1,16 @@
-// COM module e2e spec — @m6 @ai
-// Tests: isolation (no agent/store imports), output shape, fixture sign ordering.
-// Skips cleanly when ANTHROPIC_API_KEY is absent (per CLAUDE.md harness rules).
+// COM module e2e spec — @m6
+// Tests: isolation (no agent/store imports — keyless @smoke), output shape, fixture sign
+// ordering (@ai — skip cleanly when ANTHROPIC_API_KEY is absent, per CLAUDE.md harness rules).
 
 import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-// Guard: all @ai tests must skip cleanly without ANTHROPIC_API_KEY
-test.beforeEach(({ }, testInfo) => {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    testInfo.skip();
-  }
-});
-
 // ---------------------------------------------------------------------------
-// Isolation check — COM must import nothing from agent.ts or stores
+// Isolation check — COM must import nothing from agent.ts or stores.
+// Static source check, no API needed → @smoke, always runs keyless.
 // ---------------------------------------------------------------------------
-test("COM module isolation — zero imports from agent.ts or stores @m6 @ai", async () => {
+test("COM module isolation — zero imports from agent.ts or stores @m6 @smoke", async () => {
   // Read com.ts and assert it doesn't import from agent or store modules
   const comSource = await readFile(join(process.cwd(), "lib/com.ts"), "utf-8");
 
@@ -39,6 +33,13 @@ test("COM module isolation — zero imports from agent.ts or stores @m6 @ai", as
       uncommented.match(pattern),
       `lib/com.ts must not import from agent or store — found: ${pattern}`
     ).toBeNull();
+  }
+});
+
+// Guard: all remaining tests are @ai — must skip cleanly without ANTHROPIC_API_KEY
+test.beforeEach(({ }, testInfo) => {
+  if (!process.env.ANTHROPIC_API_KEY && !testInfo.title.includes("@smoke")) {
+    testInfo.skip();
   }
 });
 
@@ -142,23 +143,25 @@ test("reasons reference ICP/objections/proof language @m6 @ai", async () => {
 
   const score = await scoreVariant(fixture.input);
 
-  // At least one reason should reference something specific from the brief context
-  // (objection, ICP, proof, or goal) — not just generic "better copy" phrases
+  // At least one reason must reference fixture 05's brief-specific language — the
+  // unhandled objection (self-hosting ops burden / setup-sprint fear) or the ICP —
+  // not generic copy-taste tokens. Deliberately excludes near-generic words
+  // (control, goal, specific, signup) that any rating could emit.
   const reasons = score.reasons.join(" ").toLowerCase();
-  const hasSpecificLanguage =
+  const hasBriefSpecificLanguage =
     reasons.includes("objection") ||
-    reasons.includes("setup") ||
     reasons.includes("self-host") ||
-    reasons.includes("ops") ||
-    reasons.includes("engineer") ||
-    reasons.includes("trial") ||
-    reasons.includes("signup") ||
-    reasons.includes("specific") ||
-    reasons.includes("host") ||
-    reasons.includes("deploy") ||
-    reasons.includes("control") ||
-    reasons.includes("goal");
+    reasons.includes("self host") ||
+    reasons.includes("selfhost") ||
+    reasons.includes("devops") ||
+    reasons.includes("ops burden") ||
+    reasons.includes("sprint") ||
+    reasons.includes("5 minutes") ||
+    reasons.includes("five minutes") ||
+    reasons.includes("one command") ||
+    reasons.includes("managed") ||
+    reasons.includes("engineer");
 
-  expect(hasSpecificLanguage).toBe(true);
+  expect(hasBriefSpecificLanguage).toBe(true);
   expect(score.reasons.length).toBeGreaterThan(0);
 });

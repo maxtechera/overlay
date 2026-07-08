@@ -418,9 +418,10 @@ removable chip.
 **Preview→chat:** click on an identified node → `selected` → composer gains a reference chip
 (`hero.headline`); sending prepends `[re: hero.headline]` to the user text.
 
-**Validation test set** (tune against these ONLY): `posthog.com` · `maxtechera.dev` (tier 2 —
-hydrated Next.js) · `astro.build`. Failure-lap site: `linear.app` (bot-walled — validated 422
-→ clean error path).
+**Primary target: `maxtechera.dev`** — the MVP slice runs end-to-end here first (hydrated
+Next.js, the harder tier). Breadth set for AFTER the slice (issue #18): `posthog.com` ·
+`astro.build`. Failure-path coverage uses deterministic fixtures (bot-wall markers, non-HTML)
+— external sites drift (linear.app dropped its bot wall 2026-07-08).
 
 **✅ Proxy fidelity VALIDATED 2026-07-07** (`scripts/proxy-spike.mjs` + `scripts/spike-shots.mjs`,
 screenshots in `scripts/shots/`): test-set sites fetched (no bot walls) and rendered

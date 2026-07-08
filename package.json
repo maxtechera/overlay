@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start -p 3010",
     "typecheck": "tsc --noEmit",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "com:check": "node --env-file=.env.local scripts/com-check.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.94",

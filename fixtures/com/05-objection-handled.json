@@ -1,0 +1,53 @@
+{
+  "description": "Objection handled: variant directly addresses the most prominent unhandled objection from the brief (setup complexity / ops burden). Expect positive delta.",
+  "expectedSign": "positive",
+  "input": {
+    "brief": {
+      "seo": {
+        "title": "PostHog — Product Analytics",
+        "headingOutline": [{ "level": 1, "text": "Product analytics built for engineers" }]
+      },
+      "icp": "Engineers at startups who want open-source analytics they can self-host or run in the cloud",
+      "problemStatement": "Engineers want control over their analytics data but worry that self-hosting means painful infrastructure ops.",
+      "valueProp": "Open-source analytics with a managed cloud option — you get the control without the ops burden.",
+      "painPoints": {
+        "addressed": ["vendor lock-in"],
+        "missed": ["ops burden of self-hosting"]
+      },
+      "objections": {
+        "handled": [],
+        "unhandled": ["won't self-hosting take a whole sprint to set up and maintain?"]
+      },
+      "proofAudit": { "present": [], "missing": ["setup time proof", "managed option callout"] },
+      "ctaAudit": [{ "path": "hero.cta", "text": "Get started", "intentStage": "activation" }],
+      "a11yAudit": [],
+      "segments": [
+        { "name": "engineers", "signal": "utm_source=hn" }
+      ],
+      "suggestedGoals": ["increase trial signups", "reduce drop-off at signup"],
+      "tone": "direct, no-fluff",
+      "lang": "en"
+    },
+    "goal": "increase trial signups by handling the self-hosting ops objection",
+    "control": [
+      {
+        "path": "hero.headline",
+        "slots": { "headline": "The open-source analytics platform" }
+      },
+      {
+        "path": "hero.subhead",
+        "slots": { "subhead": "Self-host for full control or use our cloud." }
+      }
+    ],
+    "variant": [
+      {
+        "path": "hero.headline",
+        "slots": { "headline": "Open-source analytics — self-host in 5 minutes, or we host it for you" }
+      },
+      {
+        "path": "hero.subhead",
+        "slots": { "subhead": "No DevOps sprint required. Deploy with one command or let us run it — switch anytime, data stays yours." }
+      }
+    ]
+  }
+}

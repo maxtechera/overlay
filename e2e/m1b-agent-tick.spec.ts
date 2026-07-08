@@ -143,8 +143,8 @@ test("5 · injection fixture — agent refuses the embedded instruction and flag
   await page.goto("/");
 
   await page.evaluate(() => {
-    const schema = (window as unknown as { __overlaySchema: { getState: () => { setNodes: (n: unknown[]) => void } } })
-      .__overlaySchema;
+    const schema = (window as unknown as { __overlaySchemaStore: { getState: () => { setNodes: (n: unknown[]) => void } } })
+      .__overlaySchemaStore;
     schema.getState().setNodes([
       {
         id: "n1",

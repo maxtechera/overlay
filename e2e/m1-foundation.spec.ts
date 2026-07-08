@@ -128,8 +128,8 @@ test("4 · update-content applies in <500ms and revert restores exactly @m1", as
       }
     ).__overlayHost;
     const schema = (
-      window as unknown as { __overlaySchema: { getState: () => { outline: () => { id: string; type: string }[] } } }
-    ).__overlaySchema;
+      window as unknown as { __overlaySchemaStore: { getState: () => { outline: () => { id: string; type: string }[] } } }
+    ).__overlaySchemaStore;
 
     const heroId = schema.getState().outline().find((n) => n.type === "hero")?.id;
     if (!heroId) throw new Error("no hero in schema store — fixture assumption broken");

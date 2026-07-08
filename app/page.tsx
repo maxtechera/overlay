@@ -21,10 +21,12 @@ type IngestStatus =
   | { state: "ready"; url: string }
   | { state: "error"; reason: string };
 
+type Finding = { path: string; issue: string };
+
 type SchemaStatus =
   | { state: "idle" }
   | { state: "extracting" }
-  | { state: "ready"; nodes: PageNode[] }
+  | { state: "ready"; nodes: PageNode[]; a11yAudit: Finding[] }
   | { state: "none" };
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -76,7 +78,7 @@ export default function Home() {
     (window as unknown as { __overlayHost?: IframeHost }).__overlayHost = host;
     // Test hook: expose the schema store so e2e specs can look up a real node id (e.g. the
     // hero's) without the removed hardcoded dev buttons. Harmless in production.
-    (window as unknown as { __overlaySchema?: typeof useSchemaStore }).__overlaySchema = useSchemaStore;
+    (window as unknown as { __overlaySchemaStore?: typeof useSchemaStore }).__overlaySchemaStore = useSchemaStore;
     // Test hook: run a turn directly against a fabricated schema, bypassing ingest — used by
     // the injection-fixture spec (TECH-SPEC §2's SSRF guard rejects localhost, so a real
     // fixture page can't go through /api/ingest; the injection defense lives in the system
@@ -96,9 +98,20 @@ export default function Home() {
               useSchemaStore.getState().setNodes(res.nodes);
               setSchema(
                 res.nodes.length > 0
-                  ? { state: "ready", nodes: res.nodes }
+                  ? { state: "ready", nodes: res.nodes, a11yAudit: res.a11yAudit }
                   : { state: "none" }
               );
+              // Test/debug hooks (same pattern as __overlayApplyMs / __overlayHost) — the
+              // full extracted schema + ADA rollup, for e2e specs and devtools spot-checks.
+              // Harmless in production; nothing reads these globals. Named __overlaySchema
+              // (plain array) — distinct from __overlaySchemaStore (the zustand store hook,
+              // used by the M1b agent-loop specs) to avoid a name collision between the two
+              // lanes' test hooks.
+              (window as unknown as { __overlaySchema?: PageNode[] }).__overlaySchema =
+                res.nodes;
+              (window as unknown as { __overlayA11y?: Finding[] }).__overlayA11y =
+                res.a11yAudit;
+
               // First turn: extraction already ran (deterministic); the agent narrates it
               // (TECH-SPEC §5 — the agent never calls ingest/extract itself).
               void runFirstTurn(send);
@@ -246,9 +259,26 @@ export default function Home() {
                 <div className="body" data-testid="schema-msg">
                   <strong>Hero detected:</strong>{" "}
                   <span className="mono">{heroNodes[0].path}</span>
+                  {heroNodes[0].via && (
+                    <span className="mono" style={{ color: "var(--faint)" }}>
+                      {" "}
+                      · via:{heroNodes[0].via}
+                    </span>
+                  )}
                   <br />
                   Headline:{" "}
                   <em>{heroNodes[0].slots.headline?.text?.slice(0, 80) ?? "(none)"}</em>
+                  {heroNodes[0].facts && (
+                    <span style={{ color: "var(--faint)", fontSize: 12 }}>
+                      {" "}
+                      ({heroNodes[0].facts.lines ?? "?"} lines · {heroNodes[0].facts.fontPx ?? "?"}
+                      px · contrast{" "}
+                      {heroNodes[0].facts.contrast !== undefined
+                        ? `${heroNodes[0].facts.contrast}:1`
+                        : "n/a"}
+                      )
+                    </span>
+                  )}
                   {heroNodes[0].slots.subhead && (
                     <>
                       <br />
@@ -261,6 +291,37 @@ export default function Home() {
                       <br />
                       CTA: <em>{heroNodes[0].slots.cta.text}</em>
                     </>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* M2a — full ladder summary + ADA rollup (deterministic, computed off facts) */}
+            {schema.state === "ready" && (
+              <div className="msg agent">
+                <div className="who">extraction</div>
+                <div className="body" data-testid="ladder-summary">
+                  <span data-testid="section-count">
+                    {
+                      schema.nodes.filter((n) => n.type === "section" || n.type === "collection")
+                        .length
+                    }{" "}
+                    section(s)/collection(s)
+                  </span>
+                  {" · "}
+                  <span data-testid="card-count">
+                    {schema.nodes.filter((n) => n.type === "card").length} card(s)
+                  </span>
+                  {" · "}
+                  <span data-testid="ada-audit">{schema.a11yAudit.length} ADA finding(s)</span>
+                  {schema.a11yAudit.length > 0 && (
+                    <ul style={{ margin: "4px 0 0", paddingLeft: 18, fontSize: 12 }}>
+                      {schema.a11yAudit.slice(0, 8).map((f, i) => (
+                        <li key={i}>
+                          <span className="mono">{f.path}</span>: {f.issue}
+                        </li>
+                      ))}
+                    </ul>
                   )}
                 </div>
               </div>

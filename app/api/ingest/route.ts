@@ -164,9 +164,21 @@ export async function GET(req: Request) {
     }
   }
 
-  // Inject runtime before </body>
+  // Inject runtime before </body>. `window.__overlayTargetHost` carries the ORIGINAL target
+  // hostname (e.g. "maxtechera.dev") through to the runtime: the page is served same-origin
+  // from OUR host (via the <base href> rewrite above), so `location.hostname` inside the iframe
+  // is always our own origin, never the target's — profiles.ts (PRD §4.2 ladder rung 1) is
+  // keyed by the target hostname, so the runtime needs this out-of-band (see lib/runtime.ts's
+  // "extract" handler).
+  const targetHostname = (() => {
+    try {
+      return new URL(finalUrl).hostname;
+    } catch {
+      return "";
+    }
+  })();
   const body = root.querySelector("body");
-  const runtimeScript = `<script>\n${runtimeCode}\n</script>`;
+  const runtimeScript = `<script>window.__overlayTargetHost=${JSON.stringify(targetHostname)};</script><script>\n${runtimeCode}\n</script>`;
   if (body) {
     body.set_content(body.innerHTML + runtimeScript);
   } else {

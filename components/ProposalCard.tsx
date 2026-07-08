@@ -49,7 +49,7 @@ export function ProposalCard({ block }: { block: ProposalBlock }) {
     <Card
       className="border-l-[3px] border-l-primary"
       data-proposal-status={block.status}
-      data-testid={block.status === "pending" ? "proposal-pending" : `proposal-${block.status}`}
+      data-testid="proposal-card"
     >
       <CardHeader>
         <div className="flex items-center gap-2">

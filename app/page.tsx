@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { IframeHost } from "@/lib/protocol";
 import { runFirstTurn, runTurn } from "@/lib/agent";
-import { useSchemaStore, useSessionStore } from "@/lib/store";
+import { useChatStore, useSchemaStore, useSessionStore } from "@/lib/store";
 import type { SendToIframe } from "@/lib/tools";
 import type { PageNode } from "@/lib/types";
 import { ChatPane } from "@/components/ChatPane";
@@ -79,6 +79,10 @@ export default function Home() {
     // Test hook: expose the schema store so e2e specs can look up a real node id (e.g. the
     // hero's) without the removed hardcoded dev buttons. Harmless in production.
     (window as unknown as { __overlaySchemaStore?: typeof useSchemaStore }).__overlaySchemaStore = useSchemaStore;
+    // Test hook: expose the chat store so e2e specs can poll `streaming` to know when a full
+    // agent turn (which may span multiple tool calls) has actually settled, instead of racing
+    // the first partial text block that streams in. Harmless in production.
+    (window as unknown as { __overlayChatStore?: typeof useChatStore }).__overlayChatStore = useChatStore;
     // Test hook: run a turn directly against a fabricated schema, bypassing ingest — used by
     // the injection-fixture spec (TECH-SPEC §2's SSRF guard rejects localhost, so a real
     // fixture page can't go through /api/ingest; the injection defense lives in the system

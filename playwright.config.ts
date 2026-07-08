@@ -11,7 +11,12 @@ export default defineConfig({
   },
   reporter: [["list"], ["html", { open: "never" }]],
   webServer: {
-    command: "pnpm dev",
+    // Production build, not `next dev`: the M1a acceptance criterion (<500ms apply —
+    // PRD.md:497, TECH-SPEC.md:543) measures real client-side latency. `next dev` serves
+    // unminified bundles + dev-mode React, which is slow enough on a CPU-constrained CI
+    // runner to blow the budget on infra overhead alone, not app logic. `pnpm build` runs
+    // `prebuild` (scripts/build-runtime.mjs) first, so the iframe runtime is always fresh.
+    command: "pnpm build && pnpm start",
     url: "http://localhost:3010",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

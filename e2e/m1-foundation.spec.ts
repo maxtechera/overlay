@@ -100,8 +100,16 @@ test("3 · hero node returned with headline slot and overlay box @m1", async ({ 
 });
 
 // ── 4. Apply + revert op pipeline ───────────────────────────────────────────────
+//
+// M1a's hardcoded "Apply test op" button was scaffolding for the op pipeline itself
+// (PRD §10 step 4), superseded in M1b/#13 by the real agent -> apply_op tool -> ProposalCard
+// flow (see e2e/m1b-agent-tick.spec.ts). That flow requires ANTHROPIC_API_KEY, so this
+// keyless regression test instead drives the SAME underlying mechanism directly —
+// window.__overlayHost.sendToIframe({t:"apply-op"/"revert-op"}), exactly what apply_op's
+// execute() calls (lib/tools.ts) — proving the pipeline's <500ms apply + exact revert
+// without depending on a UI affordance or a live model.
 
-test("4 · hardcoded update-content applies in <500ms and revert restores exactly @m1", async ({
+test("4 · update-content applies in <500ms and revert restores exactly @m1", async ({
   page,
 }) => {
   await page.goto("/");
@@ -109,64 +117,57 @@ test("4 · hardcoded update-content applies in <500ms and revert restores exactl
   await page.getByTestId("url-input").fill("https://maxtechera.dev");
   await page.getByRole("button", { name: /analyze/i }).click();
 
+  // op-controls only renders once a hero is detected (same gate as M1a) — this fixture is
+  // validated to always have one (TECH-SPEC §10).
   await expect(page.getByTestId("op-controls")).toBeVisible({ timeout: 30_000 });
 
-  // Read the hero headline BEFORE apply
-  const headlineBefore = await page.getByTestId("preview-iframe").evaluate(
-    (el: HTMLIFrameElement) => {
-      const doc = el.contentDocument;
-      if (!doc) return null;
-      const h = doc.querySelector("h1, h2, [role=heading]");
-      return h?.textContent?.trim() ?? null;
-    }
-  );
+  const result = await page.evaluate(async () => {
+    const host = (
+      window as unknown as {
+        __overlayHost: { sendToIframe: (m: Record<string, unknown>) => Promise<Record<string, unknown>> };
+      }
+    ).__overlayHost;
+    const schema = (
+      window as unknown as { __overlaySchemaStore: { getState: () => { outline: () => { id: string; type: string }[] } } }
+    ).__overlaySchemaStore;
 
-  // Apply the op. Functional wait only — NOT the timing source: Playwright's own
-  // click-actionability checks (before the approve event fires) and toBeVisible()'s
-  // poll granularity (after the change lands) are test-harness overhead, not part of
-  // the product's "approve -> visible change" round-trip (PRD.md:497, TECH-SPEC.md:543).
-  await page.getByTestId("apply-btn").click();
+    const heroId = schema.getState().outline().find((n) => n.type === "hero")?.id;
+    if (!heroId) throw new Error("no hero in schema store — fixture assumption broken");
 
-  // Proposal card with "applied" state should appear (generous, functional timeout)
-  await expect(page.getByTestId("proposal-applied")).toBeVisible({ timeout: 5_000 });
+    const iframe = document.querySelector('[data-testid="preview-iframe"]') as HTMLIFrameElement;
+    const doc = iframe.contentDocument!;
+    const headlineBefore = doc.querySelector("h1, h2, [role=heading]")?.textContent?.trim() ?? null;
 
-  // Real in-app latency: approve-handler-start -> op-applied received, measured with
-  // performance.now() inside the app itself (app/page.tsx handleApplyOp). This is a
-  // conservative upper bound on visible-change latency since the iframe runtime
-  // mutates the DOM before replying op-applied.
-  const applyMs = await page.evaluate(
-    () => (window as unknown as { __overlayApplyMs?: number }).__overlayApplyMs
-  );
-  expect(applyMs).toBeGreaterThan(0);
-  expect(applyMs).toBeLessThan(500);
+    const opId = "e2e-test-op";
+    const newText = "[OVERLAY TEST] Hero rewritten by op pipeline";
 
-  // The iframe headline should now be the test string
-  const headlineAfter = await page.getByTestId("preview-iframe").evaluate(
-    (el: HTMLIFrameElement) => {
-      const doc = el.contentDocument;
-      if (!doc) return null;
-      const h = doc.querySelector("h1, h2, [role=heading]");
-      return h?.textContent?.trim() ?? null;
-    }
-  );
-  expect(headlineAfter).toContain("OVERLAY TEST");
+    const t0 = performance.now();
+    const applied = await host.sendToIframe({
+      t: "apply-op",
+      opId,
+      op: {
+        op: "update-content",
+        target: heroId,
+        slots: { headline: { text: newText } },
+        rationale: "e2e op-pipeline regression",
+      },
+    });
+    const applyMs = performance.now() - t0;
 
-  // Revert
-  await page.getByTestId("revert-btn").click();
+    const headlineAfter = doc.querySelector("h1, h2, [role=heading]")?.textContent?.trim() ?? null;
 
-  // Proposal card should disappear
-  await expect(page.getByTestId("proposal-applied")).toBeHidden({ timeout: 5_000 });
+    const reverted = await host.sendToIframe({ t: "revert-op", opId });
+    const headlineReverted = doc.querySelector("h1, h2, [role=heading]")?.textContent?.trim() ?? null;
 
-  // Headline should be restored to original
-  const headlineReverted = await page.getByTestId("preview-iframe").evaluate(
-    (el: HTMLIFrameElement) => {
-      const doc = el.contentDocument;
-      if (!doc) return null;
-      const h = doc.querySelector("h1, h2, [role=heading]");
-      return h?.textContent?.trim() ?? null;
-    }
-  );
-  expect(headlineReverted).toBe(headlineBefore);
+    return { applied, applyMs, headlineBefore, headlineAfter, reverted, headlineReverted };
+  });
+
+  expect(result.applied.ok).toBe(true);
+  expect(result.applyMs).toBeGreaterThan(0);
+  expect(result.applyMs).toBeLessThan(500);
+  expect(result.headlineAfter).toContain("OVERLAY TEST");
+  expect(result.reverted.t).toBe("op-reverted");
+  expect(result.headlineReverted).toBe(result.headlineBefore);
 });
 
 // ── 5. Click interceptor prevents navigation ─────────────────────────────────────

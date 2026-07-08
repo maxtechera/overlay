@@ -1,16 +1,46 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Overlay is a single fixed dark theme (PRD §6: "dark theme, orange accent via CSS
+ * variables") — no light/dark toggle. Bespoke shell variables (--bg/--panel/--faint/…)
+ * coexist with shadcn's semantic token set; where a name collided (border/muted/accent)
+ * shadcn's token wins and legacy rules were repointed to it below.
+ */
 :root {
   --bg: #0a0a0a;
   --panel: #101013;
   --panel-2: #141418;
-  --border: #232327;
   --border-2: #34343a;
   --text: #ededed;
-  --muted: #8a8a92;
   --faint: #5c5c64;
-  --accent: #f97316;
+  --brand: #f97316;
   --green: #34d399;
   --red: #f87171;
   --indigo: #8b93f8;
+
+  --background: var(--bg);
+  --foreground: var(--text);
+  --card: var(--panel-2);
+  --card-foreground: var(--text);
+  --popover: var(--panel-2);
+  --popover-foreground: var(--text);
+  --primary: var(--brand);
+  --primary-foreground: #0a0a0a;
+  --secondary: var(--panel-2);
+  --secondary-foreground: var(--text);
+  --muted: var(--panel-2);
+  --muted-foreground: #8a8a92;
+  --accent: var(--panel-2);
+  --accent-foreground: var(--text);
+  --destructive: var(--red);
+  --border: #232327;
+  --input: var(--border-2);
+  --ring: var(--brand);
+  --radius: 0.625rem;
 }
 
 * { box-sizing: border-box; }
@@ -37,9 +67,9 @@ button {
   padding: 6px 12px;
   cursor: pointer;
 }
-button:hover:not(:disabled) { border-color: var(--accent); }
+button:hover:not(:disabled) { border-color: var(--primary); }
 button:disabled { opacity: 0.4; cursor: default; }
-button.primary { background: var(--accent); border-color: var(--accent); color: #0a0a0a; font-weight: 600; }
+button.primary { background: var(--primary); border-color: var(--primary); color: #0a0a0a; font-weight: 600; }
 button.ghost { background: transparent; }
 button.small { padding: 3px 9px; font-size: 12px; }
 
@@ -52,7 +82,7 @@ input, textarea {
   outline: none;
   width: 100%;
 }
-input:focus, textarea:focus { border-color: var(--accent); }
+input:focus, textarea:focus { border-color: var(--primary); }
 
 /* ---------- app shell ---------- */
 .shell { display: flex; flex-direction: column; height: 100vh; }
@@ -72,7 +102,7 @@ input:focus, textarea:focus { border-color: var(--accent); }
   margin-right: 6px;
   white-space: nowrap;
 }
-.topbar .brand .dot { color: var(--accent); }
+.topbar .brand .dot { color: var(--primary); }
 .topbar form { display: flex; gap: 8px; flex: 1; }
 .topbar input { max-width: 560px; }
 
@@ -94,7 +124,7 @@ input:focus, textarea:focus { border-color: var(--accent); }
   border-bottom: 1px solid var(--border);
   background: var(--panel);
   font-size: 12px;
-  color: var(--muted);
+  color: var(--muted-foreground);
   flex: none;
 }
 .preview-tools .spacer { flex: 1; }
@@ -106,17 +136,17 @@ input:focus, textarea:focus { border-color: var(--accent); }
   color: #666; background: var(--panel-2);
   flex-direction: column; gap: 8px;
 }
-.preview-frame .empty .big { font-size: 18px; color: var(--muted); }
+.preview-frame .empty .big { font-size: 18px; color: var(--muted-foreground); }
 
 .toggle {
   display: inline-flex; align-items: center; gap: 6px;
   cursor: pointer; user-select: none;
-  color: var(--muted);
+  color: var(--muted-foreground);
 }
 .toggle input { width: auto; }
 .toggle.on { color: var(--text); }
 
-/* ---------- chat panel ---------- */
+/* ---------- chat panel (shell only — transcript itself is AI Elements, see components/) --- */
 .chat {
   width: 420px;
   flex: none;
@@ -143,7 +173,7 @@ input:focus, textarea:focus { border-color: var(--accent); }
   font-family: "Geist Mono", ui-monospace, monospace;
 }
 .msg.user .who { color: var(--indigo); }
-.msg.agent .who { color: var(--accent); }
+.msg.agent .who { color: var(--primary); }
 .msg .body {
   border: 1px solid var(--border);
   background: var(--panel-2);
@@ -152,32 +182,10 @@ input:focus, textarea:focus { border-color: var(--accent); }
 }
 .msg.user .body { border-color: var(--border-2); }
 
-/* proposal cards */
-.proposal {
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
-  background: var(--panel-2);
-  padding: 10px 12px;
-}
-.proposal .op {
-  font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
-  font-family: "Geist Mono", ui-monospace, monospace;
-  color: var(--accent);
-  display: flex; align-items: center; gap: 8px;
-}
-.proposal .op .target { color: var(--faint); text-transform: none; letter-spacing: 0; }
-.proposal .value { margin: 8px 0 4px; font-size: 13px; }
-.proposal .value .old { color: var(--faint); text-decoration: line-through; display: block; margin-bottom: 4px; }
-.proposal .value .new { color: var(--text); display: block; }
-.proposal .rationale { font-size: 12px; color: var(--muted); margin: 6px 0 10px; }
-.proposal .actions { display: flex; gap: 8px; }
-.proposal.applied { border-left-color: var(--green); }
-.proposal.applied .op { color: var(--green); }
-
 .chat-input { border-top: 1px solid var(--border); padding: 12px; flex: none; }
 .chat-input form { display: flex; gap: 8px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
-.chips button { font-size: 12px; padding: 4px 10px; color: var(--muted); }
+.chips button { font-size: 12px; padding: 4px 10px; color: var(--muted-foreground); }
 .chips button:hover { color: var(--text); }
 
 .status { font-size: 11px; color: var(--faint); padding: 4px 14px 10px; font-family: "Geist Mono", ui-monospace, monospace; }
@@ -194,11 +202,50 @@ input:focus, textarea:focus { border-color: var(--accent); }
   font-family: "Geist Mono", ui-monospace, monospace;
   padding: 1px 6px;
   border: 1px solid var(--border-2);
-  color: var(--muted);
+  color: var(--muted-foreground);
 }
 
-.thinking { display: inline-flex; gap: 4px; align-items: center; color: var(--muted); font-size: 12px; }
-.thinking .d { width: 4px; height: 4px; background: var(--accent); animation: blink 1.2s infinite; }
+.thinking { display: inline-flex; gap: 4px; align-items: center; color: var(--muted-foreground); font-size: 12px; }
+.thinking .d { width: 4px; height: 4px; background: var(--primary); animation: blink 1.2s infinite; }
 .thinking .d:nth-child(2) { animation-delay: 0.2s; }
 .thinking .d:nth-child(3) { animation-delay: 0.4s; }
 @keyframes blink { 0%, 60%, 100% { opacity: 0.25; } 30% { opacity: 1; } }
+
+@theme inline {
+  --font-heading: var(--font-sans);
+  --font-sans: var(--font-sans);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}

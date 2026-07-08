@@ -1,14 +1,17 @@
 "use client";
 
 /**
- * app/page.tsx — two-pane shell (Step 1–4, M1a)
+ * app/page.tsx — two-pane shell (M1a: shell/ingest/hero-detect/op-pipeline · M1b/#13: agent loop)
  * Chat left · Preview right
- * No agent in this issue — chat echoes input; hardcoded op button drives the pipeline.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { IframeHost } from "@/lib/protocol";
-import type { PageNode, Op } from "@/lib/types";
+import { runFirstTurn, runTurn } from "@/lib/agent";
+import { useChatStore, useSchemaStore, useSessionStore } from "@/lib/store";
+import type { SendToIframe } from "@/lib/tools";
+import type { PageNode } from "@/lib/types";
+import { ChatPane } from "@/components/ChatPane";
 
 // ── types ──────────────────────────────────────────────────────────────────────
 
@@ -25,11 +28,6 @@ type SchemaStatus =
   | { state: "extracting" }
   | { state: "ready"; nodes: PageNode[]; a11yAudit: Finding[] }
   | { state: "none" };
-
-type OpState =
-  | { state: "idle" }
-  | { state: "applied"; opId: string; prevText: string; newText: string }
-  | { state: "error"; reason: string };
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -48,13 +46,19 @@ export default function Home() {
   const [urlInput, setUrlInput] = useState("");
   const [ingest, setIngest] = useState<IngestStatus>({ state: "idle" });
   const [schema, setSchema] = useState<SchemaStatus>({ state: "idle" });
-  const [opState, setOpState] = useState<OpState>({ state: "idle" });
   const [overlayOn, setOverlayOn] = useState(false);
   const [iframeReady, setIframeReady] = useState(false);
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const hostRef = useRef<IframeHost | null>(null);
-  const schemaNodesRef = useRef<PageNode[]>([]);
+
+  // Stable wrapper handed to the agent loop + ChatPane — reads the ref at call time so it
+  // works across iframe reloads without needing to re-render consumers.
+  const send: SendToIframe = useCallback((msg) => {
+    const host = hostRef.current;
+    if (!host) return Promise.reject(new Error("iframe not ready"));
+    return host.sendToIframe(msg);
+  }, []);
 
   // ── IframeHost setup ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -70,8 +74,22 @@ export default function Home() {
     const host = new IframeHost(iframe, timeoutMs ? { timeoutMs } : undefined);
     hostRef.current = host;
     // Test hook: expose the host so e2e specs can drive sendToIframe directly (to prove
-    // the timeout→reject path). Harmless in production — nothing reads this global.
+    // the timeout→reject path and the raw apply/revert mechanics). Harmless in production.
     (window as unknown as { __overlayHost?: IframeHost }).__overlayHost = host;
+    // Test hook: expose the schema store so e2e specs can look up a real node id (e.g. the
+    // hero's) without the removed hardcoded dev buttons. Harmless in production.
+    (window as unknown as { __overlaySchemaStore?: typeof useSchemaStore }).__overlaySchemaStore = useSchemaStore;
+    // Test hook: expose the chat store so e2e specs can poll `streaming` to know when a full
+    // agent turn (which may span multiple tool calls) has actually settled, instead of racing
+    // the first partial text block that streams in. Harmless in production.
+    (window as unknown as { __overlayChatStore?: typeof useChatStore }).__overlayChatStore = useChatStore;
+    // Test hook: run a turn directly against a fabricated schema, bypassing ingest — used by
+    // the injection-fixture spec (TECH-SPEC §2's SSRF guard rejects localhost, so a real
+    // fixture page can't go through /api/ingest; the injection defense lives in the system
+    // prompt + tool markers, not the network fetch, so this exercises the right layer).
+    (window as unknown as { __overlayRunTurn?: (text: string) => Promise<void> }).__overlayRunTurn = (
+      text: string
+    ) => runTurn(text, send);
 
     const unsub = host.onUnsolicited((msg) => {
       if (msg.t === "ready") {
@@ -81,7 +99,7 @@ export default function Home() {
           .sendToIframe({ t: "extract" })
           .then((res) => {
             if (res.t === "schema") {
-              schemaNodesRef.current = res.nodes;
+              useSchemaStore.getState().setNodes(res.nodes);
               setSchema(
                 res.nodes.length > 0
                   ? { state: "ready", nodes: res.nodes, a11yAudit: res.a11yAudit }
@@ -89,11 +107,18 @@ export default function Home() {
               );
               // Test/debug hooks (same pattern as __overlayApplyMs / __overlayHost) — the
               // full extracted schema + ADA rollup, for e2e specs and devtools spot-checks.
-              // Harmless in production; nothing reads these globals.
+              // Harmless in production; nothing reads these globals. Named __overlaySchema
+              // (plain array) — distinct from __overlaySchemaStore (the zustand store hook,
+              // used by the M1b agent-loop specs) to avoid a name collision between the two
+              // lanes' test hooks.
               (window as unknown as { __overlaySchema?: PageNode[] }).__overlaySchema =
                 res.nodes;
               (window as unknown as { __overlayA11y?: Finding[] }).__overlayA11y =
                 res.a11yAudit;
+
+              // First turn: extraction already ran (deterministic); the agent narrates it
+              // (TECH-SPEC §5 — the agent never calls ingest/extract itself).
+              void runFirstTurn(send);
             }
           })
           .catch((e) => {
@@ -116,7 +141,7 @@ export default function Home() {
       host.destroy();
       hostRef.current = null;
     };
-  }, []);
+  }, [send]);
 
   // ── submit URL ──────────────────────────────────────────────────────────────
   const handleSubmit = useCallback(
@@ -127,9 +152,9 @@ export default function Home() {
 
       setIngest({ state: "loading" });
       setSchema({ state: "idle" });
-      setOpState({ state: "idle" });
       setIframeReady(false);
-      schemaNodesRef.current = [];
+      useSchemaStore.getState().setNodes([]);
+      useSessionStore.getState().setUrl(url);
 
       // Probe the ingest route — if 422, surface the error before setting iframe.src
       const ingestUrl = `/api/ingest?url=${encodeURIComponent(url)}`;
@@ -168,61 +193,6 @@ export default function Home() {
       console.error("[overlay] overlay toggle failed", e);
     }
   }, [overlayOn, iframeReady]);
-
-  // ── hardcoded op pipeline (Step 4) ─────────────────────────────────────────
-  const handleApplyOp = useCallback(async () => {
-    // Real in-app latency for the M1a "<500ms apply" criterion (PRD.md:497,
-    // TECH-SPEC.md:543): approve-handler-start -> op-applied received. The iframe
-    // runtime mutates the DOM before it replies op-applied, so this is a conservative
-    // upper bound on visible-change latency — it excludes Playwright's own
-    // click-actionability and toBeVisible() polling overhead, neither of which is
-    // part of the product's round-trip. Test-only read; harmless in production.
-    const t0 = performance.now();
-
-    const host = hostRef.current;
-    if (!host || !iframeReady) return;
-
-    const nodes = schemaNodesRef.current;
-    const hero = nodes.find((n) => n.type === "hero");
-    if (!hero) return;
-
-    const originalText = hero.slots.headline?.text ?? "Hero Headline";
-    const newText = "[OVERLAY TEST] Hero rewritten by op pipeline";
-    const opId = `test-op-${Date.now()}`;
-
-    const op: Op = {
-      op: "update-content",
-      target: hero.id,
-      slots: { headline: { text: newText } },
-      rationale: "Hardcoded test op — M1a step 4",
-    };
-
-    try {
-      const res = await host.sendToIframe({ t: "apply-op", opId, op });
-      if (res.t === "op-applied" && res.ok) {
-        setOpState({ state: "applied", opId, prevText: originalText, newText });
-        (window as unknown as { __overlayApplyMs?: number }).__overlayApplyMs =
-          performance.now() - t0;
-      } else {
-        const error = res.t === "op-applied" ? (res.error ?? "unknown") : "unexpected-msg";
-        setOpState({ state: "error", reason: error });
-      }
-    } catch (e) {
-      setOpState({ state: "error", reason: String(e) });
-    }
-  }, [iframeReady]);
-
-  const handleRevertOp = useCallback(async () => {
-    const host = hostRef.current;
-    if (!host || opState.state !== "applied") return;
-    const { opId } = opState;
-    try {
-      await host.sendToIframe({ t: "revert-op", opId });
-      setOpState({ state: "idle" });
-    } catch (e) {
-      console.error("[overlay] revert failed", e);
-    }
-  }, [opState]);
 
   // ── render ──────────────────────────────────────────────────────────────────
   const heroNodes =
@@ -266,10 +236,11 @@ export default function Home() {
         <div className="chat">
           <div className="chat-head">
             <span className="title">Chat</span>
-            <span className="sub">M1a — foundation (no agent)</span>
+            <span className="sub">agent loop · reasoning · proposals</span>
           </div>
-          <div className="chat-scroll" data-testid="chat-scroll">
-            {/* error */}
+
+          {/* deterministic extraction status (independent of the agent's own reply) */}
+          <div className="chat-scroll" data-testid="chat-scroll" style={{ flex: "none", maxHeight: 160 }}>
             {ingest.state === "error" && (
               <div className="msg agent">
                 <div className="who">system</div>
@@ -286,7 +257,6 @@ export default function Home() {
               </div>
             )}
 
-            {/* schema results */}
             {schema.state === "ready" && heroNodes.length > 0 && (
               <div className="msg agent">
                 <div className="who">extraction</div>
@@ -370,46 +340,6 @@ export default function Home() {
               </div>
             )}
 
-            {/* op result */}
-            {opState.state === "applied" && (
-              <div className="proposal applied" data-testid="proposal-applied">
-                <div className="op">
-                  update-content{" "}
-                  <span className="target">hero.headline</span>
-                </div>
-                <div className="value">
-                  <span className="old">{opState.prevText}</span>
-                  <span className="new">{opState.newText}</span>
-                </div>
-                <div className="rationale">
-                  Hardcoded test op — M1a step 4 pipeline verification.
-                </div>
-                <div className="actions">
-                  <button
-                    className="small"
-                    onClick={handleRevertOp}
-                    data-testid="revert-btn"
-                  >
-                    Revert
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {opState.state === "error" && (
-              <div className="msg agent">
-                <div className="who">error</div>
-                <div
-                  className="body"
-                  style={{ color: "var(--red)" }}
-                  data-testid="op-error-msg"
-                >
-                  Op failed: {opState.reason}
-                </div>
-              </div>
-            )}
-
-            {/* empty state */}
             {ingest.state === "idle" && (
               <div className="msg agent" data-testid="empty-state">
                 <div className="who">overlay</div>
@@ -417,37 +347,26 @@ export default function Home() {
                   Paste any URL above — analysis takes about a minute.
                   <br />
                   <span style={{ color: "var(--faint)", fontSize: 12 }}>
-                    M1a: shell · ingest · hero detection · op pipeline
+                    URL in → mini-brief out. Ask for a change, approve the diff, watch it apply.
                   </span>
                 </div>
               </div>
             )}
           </div>
 
-          {/* dev op controls */}
+          {/* dev/overlay controls */}
           {schema.state === "ready" && heroNodes.length > 0 && (
-            <div className="chat-input" data-testid="op-controls">
+            <div className="chat-input" data-testid="op-controls" style={{ flex: "none" }}>
               <div className="chips">
-                <button
-                  onClick={handleApplyOp}
-                  disabled={opState.state === "applied"}
-                  data-testid="apply-btn"
-                >
-                  Apply test op
-                </button>
-                <button
-                  onClick={handleRevertOp}
-                  disabled={opState.state !== "applied"}
-                  data-testid="revert-chip-btn"
-                >
-                  Revert
-                </button>
                 <button onClick={handleOverlayToggle} data-testid="overlay-btn">
                   {overlayOn ? "Hide overlay" : "Show overlay"}
                 </button>
               </div>
             </div>
           )}
+
+          {/* real agent transcript + composer */}
+          <ChatPane disabled={!iframeReady} send={send} />
         </div>
 
         {/* preview pane */}

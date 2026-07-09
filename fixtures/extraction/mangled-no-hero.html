@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head><title>Eval fixture — mangled, no hero (deliberately broken)</title></head>
+<body style="margin:0;font-family:sans-serif;font-size:14px;color:#333;">
+<!--
+  Deliberately broken fixture (M6 acceptance: "a deliberately broken fixture (mangled hero)
+  FAILS the suite — the suite can actually fail"). detectHero() in lib/runtime.ts only ever
+  considers `h1`, `h2`, `[role=heading]` candidates near the top of the viewport (see the
+  candidate-collection loop in detectHero). This page contains NONE of those — every heading
+  tag is deliberately swapped for a plain, identically-styled <div> — so hero detection MUST
+  return null. The eval runner asserts exactly that (a negative control), proving the "hero
+  found" check is not vacuously true on every fixture.
+-->
+<div>
+  <div style="padding:24px;">
+    <div style="font-size:14px;">Ship pages that convert</div>
+    <div style="font-size:14px;">A subhead that looks like a hero but carries no heading semantics or size prominence.</div>
+    <a href="/start">Get started</a>
+  </div>
+  <div style="padding:24px;">
+    <div style="font-size:14px;">Why teams choose us</div>
+    <div style="font-size:14px;">Body copy with no heading wrapping it.</div>
+  </div>
+</div>
+</body>
+</html>

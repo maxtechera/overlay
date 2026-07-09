@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { IframeHost } from "@/lib/protocol";
 import { runFirstTurn, runTurn } from "@/lib/agent";
 import { runBriefAndPlan } from "@/lib/brief";
+import { runSectionScoring } from "@/lib/section-scores";
 import { captureThumbnail } from "@/lib/thumbnail";
 import {
   useChatStore,
@@ -16,6 +17,7 @@ import {
   useExperimentsStore,
   usePreviewStore,
   useSchemaStore,
+  useScoresStore,
   useSessionStore,
   useSettingsStore,
   useVariantsStore,
@@ -141,6 +143,12 @@ export default function Home() {
     // the REAL create_variant tool logic directly (the ≤4-per-experiment clamp) without a live
     // model — same pattern as __overlayCaptureThumbnail above. Harmless in production.
     (window as unknown as { __overlayMakeTools?: typeof makeTools }).__overlayMakeTools = makeTools;
+    // Test hook (issue #36): section-scores store, so a keyless e2e spec can seed real
+    // per-section scores directly (no live model needed to prove the plumbing: schema → store →
+    // "scores" protocol message → overlay badges). The same store also receives the LIVE scores
+    // once runSectionScoring resolves below — one code path serves both.
+    (window as unknown as { __overlayScoresStore?: typeof useScoresStore }).__overlayScoresStore =
+      useScoresStore;
 
     const unsub = host.onUnsolicited((msg) => {
       if (msg.t === "ready") {
@@ -187,7 +195,10 @@ export default function Home() {
               // Experiment Plan generate ALONGSIDE it (independent structured-generation
               // calls, PRD §2 "alongside it: the Experiment Plan") — not blocking each other.
               void runFirstTurn(send);
-              void runBriefAndPlan();
+              // Issue #36: score every section against the brief once it lands — chained
+              // (not fired alongside) so the scoring pass sees the REAL brief, not the
+              // a11y-only placeholder runBriefAndPlan seeds before its first streamed partial.
+              void runBriefAndPlan().then(() => runSectionScoring());
             }
           })
           .catch((e) => {
@@ -245,6 +256,7 @@ export default function Home() {
       useSchemaStore.setState({ seo: null, a11yAudit: [] });
       useExperimentsStore.getState().setList([]);
       useVariantsStore.getState().reset();
+      useScoresStore.getState().reset();
       useComposerStore.getState().setReferenceChip(null);
       useSessionStore.getState().setUrl(url); // also loads this hostname's persisted context
       useSessionStore.getState().setStatus("ingesting");
@@ -309,6 +321,23 @@ export default function Home() {
       window.removeEventListener("pointerup", onUp);
     };
   }, []);
+
+  // ── section scores → overlay (issue #36) ────────────────────────────────────
+  // Forwards useScoresStore's contents to the runtime as a "scores" protocol message whenever
+  // it changes — the SAME path serves both the live scoring pass (runSectionScoring above) and
+  // a keyless e2e spec seeding the store directly via the __overlayScoresStore test hook, so
+  // there's exactly one way scores reach the overlay, live or seeded.
+  useEffect(() => {
+    const unsub = useScoresStore.subscribe((state) => {
+      const host = hostRef.current;
+      if (!host || !iframeReady) return;
+      if (Object.keys(state.scores).length === 0) return; // nothing to draw yet
+      host
+        .sendToIframe({ t: "scores", scores: state.scores })
+        .catch((e) => console.error("[overlay] scores send failed", e));
+    });
+    return unsub;
+  }, [iframeReady]);
 
   // ── overlay toggle ──────────────────────────────────────────────────────────
   const handleOverlayToggle = useCallback(async () => {

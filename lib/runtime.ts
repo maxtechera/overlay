@@ -46,6 +46,14 @@ interface Finding {
   issue: string;
 }
 
+/** Per-section optimization-opportunity score (issue #36) — mirrors lib/protocol.ts's
+ *  SectionScore. Duplicated here (not imported) — runtime.ts stays dependency-free of every
+ *  other app module, same discipline as the Op/PageNode/Finding shapes above. */
+interface SectionScore {
+  score: number;
+  reason?: string;
+}
+
 type Op = {
   op: "update-content";
   target: string;
@@ -72,6 +80,10 @@ const prevApplied = new Map<
 let overlayContainer: HTMLDivElement | null = null;
 let overlayOn = false;
 let lastNodes: PageNode[] = [];
+// Issue #36: per-section score set, keyed by node.path. Survives across "extract" re-runs (a
+// re-extract of the SAME page reproduces the same paths) — only replaced when the parent posts
+// a new "scores" message. Starts empty: no badges draw until the brief-driven scoring pass lands.
+let lastScores: Record<string, SectionScore> = {};
 
 // ── counter for node ids ──
 let nodeCounter = 0;
@@ -1096,6 +1108,40 @@ function drawNodeBox(container: HTMLDivElement, node: PageNode): void {
   container.appendChild(box);
 }
 
+/** Opportunity-score color: low (little upside, content's already working) → green; high (big
+ *  upside) → red. Three flat bands, not a gradient — "readable, not cluttered" (issue #36). */
+function scoreColor(score: number): string {
+  if (score >= 70) return "#ef4444"; // red — high opportunity
+  if (score >= 40) return "#f59e0b"; // amber — medium
+  return "#22c55e"; // green — low opportunity (section's already doing its job)
+}
+
+/** One small badge per SECTION (node), not per slot — "shown on each box" (issue #36) means the
+ *  section's box, keeping the display readable when a node has several slot boxes underneath.
+ *  Positioned at the node's own bounding rect (independent of which slots got drawn below it).
+ *  `pointer-events: none` — never competes with a slot box's click-to-select. */
+function drawScoreBadge(container: HTMLDivElement, node: PageNode, score: SectionScore): void {
+  const badge = document.createElement("div");
+  Object.assign(badge.style, {
+    position: "absolute",
+    left: `${node.rect.x}px`,
+    top: `${Math.max(0, node.rect.y - 15)}px`,
+    background: scoreColor(score.score),
+    color: "#0a0a0a",
+    fontSize: "10px",
+    fontFamily: "monospace",
+    fontWeight: "700",
+    padding: "1px 6px",
+    borderRadius: "3px",
+    pointerEvents: "none",
+  });
+  badge.setAttribute("data-overlay-score", String(score.score));
+  badge.setAttribute("data-overlay-score-path", node.path);
+  badge.title = score.reason ? `${node.path}: ${score.reason}` : `${node.path}: optimization opportunity`;
+  badge.textContent = `${score.score}`;
+  container.appendChild(badge);
+}
+
 function drawOverlay(nodes: PageNode[]): void {
   clearOverlay();
   if (!overlayOn || nodes.length === 0) return;
@@ -1116,13 +1162,18 @@ function drawOverlay(nodes: PageNode[]): void {
     const slotNames = Object.keys(node.slots);
     if (slotNames.length === 0) {
       drawNodeBox(overlayContainer, node);
-      continue;
+    } else {
+      for (const slotName of slotNames) {
+        const el = elementMap.get(`${node.id}.${slotName}`);
+        if (!el) continue; // slot declared but its element wasn't registered — skip, never guess
+        drawSlotBox(overlayContainer, node, slotName, el);
+      }
     }
-    for (const slotName of slotNames) {
-      const el = elementMap.get(`${node.id}.${slotName}`);
-      if (!el) continue; // slot declared but its element wasn't registered — skip, never guess
-      drawSlotBox(overlayContainer, node, slotName, el);
-    }
+
+    // Issue #36: badge only for a node with a REAL score — never invented (no badge = no score
+    // yet, e.g. still scoring, or scoring failed; never draws a placeholder/zero).
+    const score = lastScores[node.path];
+    if (score) drawScoreBadge(overlayContainer, node, score);
   }
 }
 
@@ -1256,6 +1307,15 @@ window.addEventListener("message", (e) => {
         clearOverlay();
       }
       post({ t: "overlay-ack", on: overlayOn, requestId: msg.requestId });
+      break;
+    }
+
+    case "scores": {
+      // Issue #36: replace (not merge) — a fresh scoring pass supersedes any prior set wholesale.
+      const scores = msg.scores as Record<string, SectionScore> | undefined;
+      lastScores = scores && typeof scores === "object" ? scores : {};
+      if (overlayOn) drawOverlay(lastNodes);
+      post({ t: "scores-ack", requestId: msg.requestId });
       break;
     }
 

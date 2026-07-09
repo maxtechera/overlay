@@ -302,6 +302,32 @@ export const useSchemaStore = create<SchemaState>((set, get) => ({
   node: (id) => get().nodes[id],
 }));
 
+// ── section scores (per-section optimization-opportunity score, issue #36) ─────────────────
+//
+// Keyed by node PATH (not id) — paths are stable across a single extraction session (ids get
+// reassigned by lib/runtime.ts's extractPage counter on every re-extract); the score set is
+// produced once, after the brief lands, from a snapshot of THAT extraction's paths (see
+// lib/section-scores.ts). app/page.tsx forwards this store's contents to the runtime overlay
+// via the "scores" protocol message whenever it changes (both the live LLM path and a
+// keyless e2e test seeding this store directly trigger the same forward).
+
+export interface SectionScoreEntry {
+  score: number; // 0-100 — higher = more optimization upside
+  reason?: string;
+}
+
+interface ScoresState {
+  scores: Record<string, SectionScoreEntry>;
+  setScores: (scores: Record<string, SectionScoreEntry>) => void;
+  reset: () => void;
+}
+
+export const useScoresStore = create<ScoresState>((set) => ({
+  scores: {},
+  setScores: (scores) => set({ scores }),
+  reset: () => set({ scores: {} }),
+}));
+
 // ── approvals (apply_op's human-in-the-loop gate) ───────────────────────────────
 
 interface ApprovalsState {

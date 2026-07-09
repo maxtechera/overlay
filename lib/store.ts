@@ -1,30 +1,132 @@
 /**
  * lib/store.ts — zustand stores (TECH-SPEC §9)
  *
- * M1b (#13) implements: session (minimal url/goal slice — M2b/#14 extends with
- * brief/context/status), settings, schema, chat, approvals. Variant/experiment stores
- * join in M3/M4.
+ * M1b (#13) implemented: session (minimal url/goal slice), settings, schema, chat, approvals.
+ * M2b (#14) extends session with status/error/brief/context and adds experiments + composer.
+ * Variant store joins in M3, memory persistence in M4.
  */
 
 import { create } from "zustand";
 import { nanoid } from "nanoid";
 import type { ModelMessage } from "ai";
-import type { ComScore, Op, PageNode } from "./types";
+import type { ComScore, Experiment, Op, PageBrief, PageNode } from "./types";
 
-// ── session (minimal M1 slice) ──────────────────────────────────────────────────
+// ── session (TECH-SPEC §9) ──────────────────────────────────────────────────────
+
+function contextStorageKey(url: string): string | null {
+  try {
+    const hostname = new URL(url).hostname;
+    return `overlay:context:${hostname}`;
+  } catch {
+    return null;
+  }
+}
+
+/** Best-effort localStorage read — never throws (SSR / privacy-mode safety). */
+function loadContext(url: string): string {
+  if (typeof window === "undefined") return "";
+  const key = contextStorageKey(url);
+  if (!key) return "";
+  try {
+    return window.localStorage.getItem(key) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function saveContext(url: string, context: string): void {
+  if (typeof window === "undefined") return;
+  const key = contextStorageKey(url);
+  if (!key) return;
+  try {
+    window.localStorage.setItem(key, context);
+  } catch {
+    // ignore (private mode / quota) — context still lives in memory for the session
+  }
+}
 
 interface SessionState {
   url: string;
+  status: "idle" | "ingesting" | "extracting" | "ready" | "error";
+  error?: string;
+  brief: PageBrief | null;
   goal: string;
+  context: string; // user-authored project context — localStorage-persisted until M4
   setUrl: (url: string) => void;
+  setStatus: (status: SessionState["status"], error?: string) => void;
   setGoal: (goal: string) => void;
+  setBrief: (brief: PageBrief | null) => void;
+  patchBrief: (patch: Partial<PageBrief>) => void;
+  setContext: (context: string) => void;
 }
 
-export const useSessionStore = create<SessionState>((set) => ({
+export const useSessionStore = create<SessionState>((set, get) => ({
   url: "",
+  status: "idle",
+  error: undefined,
+  brief: null,
   goal: "",
-  setUrl: (url) => set({ url }),
+  context: "",
+  setUrl: (url) => set({ url, context: loadContext(url) }),
+  setStatus: (status, error) => set({ status, error }),
   setGoal: (goal) => set({ goal }),
+  setBrief: (brief) => set({ brief }),
+  patchBrief: (patch) => set((s) => ({ brief: s.brief ? { ...s.brief, ...patch } : (patch as PageBrief) })),
+  setContext: (context) => {
+    set({ context });
+    saveContext(get().url, context);
+  },
+}));
+
+// ── experiments (Experiment Plan — TECH-SPEC §9) ────────────────────────────────
+
+interface ExperimentsState {
+  list: Experiment[];
+  setList: (list: Experiment[]) => void;
+  setStatus: (id: string, status: Experiment["status"]) => void;
+}
+
+export const useExperimentsStore = create<ExperimentsState>((set) => ({
+  list: [],
+  setList: (list) => set({ list }),
+  setStatus: (id, status) =>
+    set((s) => ({ list: s.list.map((e) => (e.id === id ? { ...e, status } : e)) })),
+}));
+
+// ── composer (shared state so ExperimentPlan/ComponentCard/preview clicks can drive the
+// chat input from outside ChatPane — TECH-SPEC §10's two-way click↔chat wiring) ───────
+
+export interface ReferenceChip {
+  nodeId: string;
+  path: string;
+}
+
+interface ComposerState {
+  text: string;
+  referenceChip: ReferenceChip | null;
+  setText: (text: string) => void;
+  setReferenceChip: (chip: ReferenceChip | null) => void;
+}
+
+export const useComposerStore = create<ComposerState>((set) => ({
+  text: "",
+  referenceChip: null,
+  setText: (text) => set({ text }),
+  setReferenceChip: (referenceChip) => set({ referenceChip }),
+}));
+
+// ── preview (parent-side handle to the live iframe, for ComponentCard highlight+scroll —
+// reaching into the SAME-ORIGIN iframe document from the parent, same pattern as the M3
+// html2canvas note in TECH-SPEC §9; does NOT touch lib/runtime.ts) ─────────────────────
+
+interface PreviewState {
+  iframeEl: HTMLIFrameElement | null;
+  setIframeEl: (el: HTMLIFrameElement | null) => void;
+}
+
+export const usePreviewStore = create<PreviewState>((set) => ({
+  iframeEl: null,
+  setIframeEl: (iframeEl) => set({ iframeEl }),
 }));
 
 // ── settings ─────────────────────────────────────────────────────────────────────
@@ -64,7 +166,13 @@ export interface ComponentOutlineEntry {
 interface SchemaState {
   nodes: Record<string, PageNode>;
   order: string[];
+  seo: PageBrief["seo"] | null;
+  a11yAudit: PageBrief["a11yAudit"];
   setNodes: (nodes: PageNode[]) => void;
+  // Real extraction path (page.tsx): nodes + the deterministic SEO/ADA rollup that rides
+  // alongside them (TECH-SPEC §6). setNodes stays payload-only — the m1b injection-fixture
+  // spec and other test hooks seed nodes without an extraction round-trip.
+  setExtraction: (nodes: PageNode[], seo: PageBrief["seo"], a11yAudit: PageBrief["a11yAudit"]) => void;
   outline: () => ComponentOutlineEntry[];
   node: (id: string) => PageNode | undefined;
 }
@@ -88,6 +196,8 @@ function previewOf(node: PageNode): string {
 export const useSchemaStore = create<SchemaState>((set, get) => ({
   nodes: {},
   order: [],
+  seo: null,
+  a11yAudit: [],
   setNodes: (nodes) => {
     const map: Record<string, PageNode> = {};
     const order: string[] = [];
@@ -96,6 +206,15 @@ export const useSchemaStore = create<SchemaState>((set, get) => ({
       order.push(n.id);
     }
     set({ nodes: map, order });
+  },
+  setExtraction: (nodes, seo, a11yAudit) => {
+    const map: Record<string, PageNode> = {};
+    const order: string[] = [];
+    for (const n of nodes) {
+      map[n.id] = n;
+      order.push(n.id);
+    }
+    set({ nodes: map, order, seo, a11yAudit });
   },
   outline: () =>
     get().order.map((id) => {
@@ -159,6 +278,8 @@ export type ChatBlock =
       warnings?: string[];
     }
   | { kind: "reasoning"; id: string; text: string; streaming: boolean }
+  | { kind: "brief"; id: string } // no payload — BriefArtifact reads session.brief live
+  | { kind: "plan"; id: string } // no payload — ExperimentPlanBlock reads experiments.list live
   | { kind: "error"; id: string; text: string };
 
 export interface Telemetry {
@@ -188,6 +309,8 @@ interface ChatState {
   setProposalStatus: (toolCallId: string, status: ProposalStatus) => void;
   setProposalScore: (toolCallId: string, score: ComScore) => void;
   pushError: (text: string) => void;
+  pushBrief: () => void;
+  pushPlan: () => void;
   commitTurn: (userMsg: ModelMessage, responseMsgs: ModelMessage[], telemetry: Telemetry) => void;
 }
 
@@ -328,6 +451,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
       activeTextId: null,
       activeReasoningId: null,
     })),
+
+  // Pushed once, immediately, when generation KICKS OFF (not when it completes) — so the
+  // artifact appears with zero dead-air and fills in as session.brief/experiments.list update
+  // (TECH-SPEC §10 latency choreography). No-ops if already present (a resumed/re-run session
+  // shouldn't duplicate the block).
+  pushBrief: () =>
+    set((s) =>
+      s.blocks.some((b) => b.kind === "brief")
+        ? s
+        : { blocks: [...s.blocks, { kind: "brief", id: nanoid() }], activeTextId: null, activeReasoningId: null }
+    ),
+  pushPlan: () =>
+    set((s) =>
+      s.blocks.some((b) => b.kind === "plan")
+        ? s
+        : { blocks: [...s.blocks, { kind: "plan", id: nanoid() }], activeTextId: null, activeReasoningId: null }
+    ),
 
   commitTurn: (userMsg, responseMsgs, telemetry) =>
     set((s) => ({

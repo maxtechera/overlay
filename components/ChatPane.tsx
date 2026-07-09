@@ -43,7 +43,7 @@ export function ChatPane({ send, disabled }: { send: SendToIframe; disabled: boo
           {blocks.length === 0 ? (
             <ConversationEmptyState data-testid="chat-empty-state" description="Send a message to start." title="No messages yet" />
           ) : (
-            <MessageList blocks={blocks} streaming={streaming} />
+            <MessageList blocks={blocks} send={send} streaming={streaming} />
           )}
         </ConversationContent>
       </Conversation>

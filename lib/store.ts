@@ -9,7 +9,7 @@
 import { create } from "zustand";
 import { nanoid } from "nanoid";
 import type { ModelMessage } from "ai";
-import type { ComScore, Experiment, Op, PageBrief, PageNode } from "./types";
+import type { ComScore, Experiment, Op, PageBrief, PageNode, Variant, VariantOp } from "./types";
 
 // ── session (TECH-SPEC §9) ──────────────────────────────────────────────────────
 
@@ -84,6 +84,11 @@ interface ExperimentsState {
   list: Experiment[];
   setList: (list: Experiment[]) => void;
   setStatus: (id: string, status: Experiment["status"]) => void;
+  // M3 (#3): "Build arms" (create_variant with an experimentId) links the new variant onto
+  // its owning experiment's armIds and — the FIRST time an experiment gets an arm — flips
+  // proposed -> building (PRD §4.5's status flow). score_variant flips building -> ready once
+  // every arm is scored (lib/tools.ts).
+  addArm: (experimentId: string, variantId: string) => void;
 }
 
 export const useExperimentsStore = create<ExperimentsState>((set) => ({
@@ -91,6 +96,74 @@ export const useExperimentsStore = create<ExperimentsState>((set) => ({
   setList: (list) => set({ list }),
   setStatus: (id, status) =>
     set((s) => ({ list: s.list.map((e) => (e.id === id ? { ...e, status } : e)) })),
+  addArm: (experimentId, variantId) =>
+    set((s) => ({
+      list: s.list.map((e) =>
+        e.id === experimentId
+          ? {
+              ...e,
+              armIds: [...e.armIds, variantId],
+              status: e.status === "proposed" ? "building" : e.status,
+            }
+          : e
+      ),
+    })),
+}));
+
+// ── variants (Control · A · B · … — TECH-SPEC §9) ───────────────────────────────
+//
+// The app holds Variant[] + activeId ("control" | variant id). `list` never has a "control"
+// entry — control IS the untouched page. Ops always record prevSlots vs CONTROL (lib/runtime.ts
+// applySlots), so switching tabs = revert the outgoing variant's ops (LIFO) then replay the
+// incoming variant's ops in order (lib/variants.ts's switchActiveVariant, which needs `send`
+// and so can't live here — same split as lib/brief.ts needing a provider).
+
+interface VariantsState {
+  list: Variant[];
+  activeId: string; // "control" | variant id
+  thumbnails: Record<string, string>; // variantId -> data URL (best-effort html2canvas, §9)
+  create: (name: string, goal?: string, segment?: string, experimentId?: string) => Variant;
+  variant: (id: string) => Variant | undefined;
+  setActiveId: (id: string) => void;
+  recordOp: (variantId: string, vop: VariantOp) => void;
+  removeOp: (variantId: string, opId: string) => void;
+  setScore: (variantId: string, score: ComScore) => void;
+  setThumbnail: (variantId: string, dataUrl: string) => void;
+  reset: () => void;
+}
+
+export const useVariantsStore = create<VariantsState>((set, get) => ({
+  list: [],
+  activeId: "control",
+  thumbnails: {},
+  create: (name, goal, segment, experimentId) => {
+    const variant: Variant = {
+      id: nanoid(),
+      name,
+      goal: goal ?? useSessionStore.getState().goal,
+      segment,
+      experimentId,
+      ops: [],
+    };
+    set((s) => ({ list: [...s.list, variant] }));
+    if (experimentId) useExperimentsStore.getState().addArm(experimentId, variant.id);
+    return variant;
+  },
+  variant: (id) => get().list.find((v) => v.id === id),
+  setActiveId: (id) => set({ activeId: id }),
+  recordOp: (variantId, vop) =>
+    set((s) => ({
+      list: s.list.map((v) => (v.id === variantId ? { ...v, ops: [...v.ops, vop] } : v)),
+    })),
+  removeOp: (variantId, opId) =>
+    set((s) => ({
+      list: s.list.map((v) => (v.id === variantId ? { ...v, ops: v.ops.filter((o) => o.id !== opId) } : v)),
+    })),
+  setScore: (variantId, score) =>
+    set((s) => ({ list: s.list.map((v) => (v.id === variantId ? { ...v, score } : v)) })),
+  setThumbnail: (variantId, dataUrl) =>
+    set((s) => ({ thumbnails: { ...s.thumbnails, [variantId]: dataUrl } })),
+  reset: () => set({ list: [], activeId: "control", thumbnails: {} }),
 }));
 
 // ── composer (shared state so ExperimentPlan/ComponentCard/preview clicks can drive the
@@ -280,6 +353,7 @@ export type ChatBlock =
   | { kind: "reasoning"; id: string; text: string; streaming: boolean }
   | { kind: "brief"; id: string } // no payload — BriefArtifact reads session.brief live
   | { kind: "plan"; id: string } // no payload — ExperimentPlanBlock reads experiments.list live
+  | { kind: "gallery"; id: string } // no payload — VariantGalleryBlock reads variants.list live
   | { kind: "error"; id: string; text: string };
 
 export interface Telemetry {
@@ -311,6 +385,7 @@ interface ChatState {
   pushError: (text: string) => void;
   pushBrief: () => void;
   pushPlan: () => void;
+  pushGallery: () => void;
   commitTurn: (userMsg: ModelMessage, responseMsgs: ModelMessage[], telemetry: Telemetry) => void;
 }
 
@@ -467,6 +542,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
       s.blocks.some((b) => b.kind === "plan")
         ? s
         : { blocks: [...s.blocks, { kind: "plan", id: nanoid() }], activeTextId: null, activeReasoningId: null }
+    ),
+
+  // Pushed after any turn in which create_variant was called (lib/agent.ts) — and callable on
+  // request. Unlike brief/plan, NOT deduped session-wide (variant activity can recur many
+  // times per session); only an immediate consecutive duplicate is skipped so one turn that
+  // calls create_variant several times doesn't spam several identical blocks in a row.
+  pushGallery: () =>
+    set((s) =>
+      s.blocks.at(-1)?.kind === "gallery"
+        ? s
+        : { blocks: [...s.blocks, { kind: "gallery", id: nanoid() }], activeTextId: null, activeReasoningId: null }
     ),
 
   commitTurn: (userMsg, responseMsgs, telemetry) =>

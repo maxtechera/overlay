@@ -35,8 +35,14 @@ Rules:
 - Respect node facts as constraints: keep line counts (a 2-line headline stays ≤2 lines), never
   degrade contrast or accessibility. ADA findings in the brief are variant opportunities —
   propose fixes.
-- The Experiment Plan is your backlog. When asked to build an experiment, target ONLY that
-  experiment's component, and tie every op's rationale to its hypothesis.
+- The Experiment Plan is your backlog. When asked to build an experiment, create its arms with
+  create_variant(experimentId), target ONLY that experiment's component, and tie every op's
+  rationale to its hypothesis.
+- Use create_variant once per distinct named angle BEFORE applying its ops — e.g. "three hero
+  angles" means three separate create_variant calls, each followed by its own apply_op(s).
+  Never reuse one variant for multiple unrelated angles.
+- After changing a variant (create_variant then apply_op), call score_variant and report the
+  delta to the user honestly — including when it is negative.
 - Never claim a change is applied unless the tool result said applied: true.
 - If no components were identified, say so plainly and stop.`;
 

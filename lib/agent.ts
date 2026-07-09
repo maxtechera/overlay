@@ -56,6 +56,9 @@ export async function runTurn(userText: string, send: SendToIframe): Promise<voi
   // toolCallId -> true for calls we rendered as a `proposal` block (apply_op) rather than a
   // generic `tool` block — the tool-result handler needs to know which path to close.
   const proposalCalls = new Set<string>();
+  // M3 (#3): "The loop pushes a `gallery` block after a turn in which create_variant was
+  // called" (TECH-SPEC §9) — tracked across this turn's tool-calls, applied once at the end.
+  let variantToolCalled = false;
 
   try {
     const result = streamText({
@@ -89,6 +92,7 @@ export async function runTurn(userText: string, send: SendToIframe): Promise<voi
           } else {
             store.openTool(p.toolCallId, p.toolName, p.input);
           }
+          if (p.toolName === "create_variant") variantToolCalled = true;
           break;
         }
         case "tool-result": {
@@ -118,6 +122,8 @@ export async function runTurn(userText: string, send: SendToIframe): Promise<voi
           break; // start, start-step, tool-input-*, finish-step, text-start/end, finish — ignored
       }
     }
+
+    if (variantToolCalled) useChatStore.getState().pushGallery();
 
     const usage = await result.usage;
     // response.messages does NOT include the user turn — commitTurn appends both.

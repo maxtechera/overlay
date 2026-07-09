@@ -7,6 +7,8 @@
  */
 
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
+import { BriefArtifact } from "@/components/BriefArtifact";
+import { ExperimentPlanBlock } from "@/components/ExperimentPlan";
 import { ProposalCard } from "@/components/ProposalCard";
 import { ReasoningBlock } from "@/components/ReasoningBlock";
 import { ToolCallRow } from "@/components/ToolCallRow";
@@ -32,6 +34,10 @@ export function MessageList({ blocks, streaming }: { blocks: ChatBlock[]; stream
             return <ToolCallRow block={block} key={block.id} />;
           case "proposal":
             return <ProposalCard block={block} key={block.id} />;
+          case "brief":
+            return <BriefArtifact key={block.id} />;
+          case "plan":
+            return <ExperimentPlanBlock key={block.id} />;
           case "error":
             return (
               <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-destructive text-sm" data-testid="agent-error" key={block.id}>

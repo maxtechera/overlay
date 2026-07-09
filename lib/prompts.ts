@@ -6,7 +6,7 @@
  * project-context section + the brief section (no longer omitted once a brief exists).
  */
 
-import { useSchemaStore, useSessionStore } from "./store";
+import { useMemoryStore, useSchemaStore, useSessionStore } from "./store";
 import { z } from "zod";
 
 export const AGENT_SYSTEM_TEMPLATE = `You are Overlay, a conversion-optimization agent working on a live webpage you do not own.
@@ -16,7 +16,7 @@ Project context (user-set, authoritative) — treat every line as a hard constra
 an action it explicitly forbids, even if a later message asks you to:
 {context}
 
-{briefSection}Components:
+{briefSection}{memorySection}Components:
 {outline}
 
 Active goal: {goal}
@@ -50,12 +50,18 @@ Rules:
 - After changing a variant (create_variant then apply_op), call score_variant and report the
   delta to the user honestly — including when it is negative.
 - Never claim a change is applied unless the tool result said applied: true.
-- If no components were identified, say so plainly and stop.`;
+- If no components were identified, say so plainly and stop.
+- Site memory (below) is durable, curated knowledge from past sessions — treat it like your own
+  CLAUDE.md for this site. When you learn something durable (a taste rule, a "never touch X",
+  what worked or didn't), call save_memory with the FULL updated document (it replaces, not
+  appends) — keep it under 100 lines, curated, not a raw log. Recent verdicts below already
+  record WHAT was approved/rejected; only graduate the WHY into memory.md once it generalizes.
+  If a rejection came with a reason, respect it — do not re-propose the same kind of change.`;
 
 /**
  * buildSystem() — rebuilt EVERY turn so brief/context/goal edits take effect immediately
- * (TECH-SPEC §5). Internal order is fixed (context → brief → outline → goal, memory joins in
- * M4) so edits — not reordering — are the only prompt-caching invalidator.
+ * (TECH-SPEC §5). Internal order is fixed (context → brief → memory → outline → goal) so
+ * edits — not reordering — are the only prompt-caching invalidator.
  */
 export function buildSystem(): string {
   const { url, goal, brief, context } = useSessionStore.getState();
@@ -72,8 +78,30 @@ export function buildSystem(): string {
   return AGENT_SYSTEM_TEMPLATE.replace("{url}", url || "(unknown)")
     .replace("{context}", contextText)
     .replace("{briefSection}", briefSection)
+    .replace("{memorySection}", buildMemorySection())
     .replace("{outline}", outlineText)
     .replace("{goal}", goal || "none stated — infer a sensible one and say what you chose");
+}
+
+/**
+ * Site memory (M4/#4, TECH-SPEC §11) — "the agent receives the current memory.md in
+ * buildSystem() under a 'Site memory:' heading (empty -> 'none yet')". Also surfaces the last
+ * few approve/reject verdicts (with reasons) so a rejection's reason is visible EVERY turn, not
+ * just the one right after it — "reject with a reason -> next proposal respects it -> reload ->
+ * *still* respects it" (PRD §4.6).
+ */
+function buildMemorySection(): string {
+  const { content, verdicts } = useMemoryStore.getState();
+  const memoryText = content && content.trim().length > 0 ? content.trim() : "none yet";
+  let section = `Site memory (agent-curated, durable learnings — call save_memory to update):\n${memoryText}\n\n`;
+  if (verdicts.length > 0) {
+    const recent = verdicts
+      .slice(-5)
+      .map((v) => `- ${v.approved ? "approved" : "rejected"}${v.reason ? `: ${v.reason}` : ""}`)
+      .join("\n");
+    section += `Recent approve/reject verdicts:\n${recent}\n\n`;
+  }
+  return section;
 }
 
 // ── BRIEF_PROMPT (M2, streamObject with the PageBrief schema minus a11yAudit, haiku) ───────

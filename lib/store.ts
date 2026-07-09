@@ -9,6 +9,7 @@
 import { create } from "zustand";
 import { nanoid } from "nanoid";
 import type { ModelMessage } from "ai";
+import { hostnameOf, postMemory, type Verdict } from "./memory";
 import type { ComScore, Experiment, Op, PageBrief, PageNode, Variant, VariantOp } from "./types";
 
 // ── session (TECH-SPEC §9) ──────────────────────────────────────────────────────
@@ -75,6 +76,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   setContext: (context) => {
     set({ context });
     saveContext(get().url, context);
+    // M4 (#4): context.md persists to disk too (TECH-SPEC §11 — "context panel persists to
+    // disk from M4 on"). Fire-and-forget — postMemory never throws.
+    const site = hostnameOf(get().url);
+    if (site) void postMemory(site, { context });
   },
 }));
 
@@ -122,6 +127,11 @@ interface VariantsState {
   list: Variant[];
   activeId: string; // "control" | variant id
   thumbnails: Record<string, string>; // variantId -> data URL (best-effort html2canvas, §9)
+  // M4 (#4): op ids that arrived via `hydrate` (a resumed session's saved variants) and have
+  // NOT yet been re-applied this session — "Ops are NOT auto-reapplied; the op list shows
+  // 'from last session' with a re-apply action" (TECH-SPEC §11). lib/resume.ts's reapplyOp
+  // removes an id via markLive once it successfully re-applies against the fresh extraction.
+  hydratedOpIds: Set<string>;
   create: (name: string, goal?: string, segment?: string, experimentId?: string) => Variant;
   variant: (id: string) => Variant | undefined;
   setActiveId: (id: string) => void;
@@ -129,6 +139,12 @@ interface VariantsState {
   removeOp: (variantId: string, opId: string) => void;
   setScore: (variantId: string, score: ComScore) => void;
   setThumbnail: (variantId: string, dataUrl: string) => void;
+  // Resume (TECH-SPEC §11): replace the list wholesale from a saved session's state.json,
+  // reset to "control" (nothing is actually applied in the fresh DOM yet — re-apply is
+  // explicit, never automatic), and mark every op from every hydrated variant as
+  // "from last session".
+  hydrate: (variants: Variant[]) => void;
+  markLive: (opId: string) => void;
   reset: () => void;
 }
 
@@ -136,6 +152,7 @@ export const useVariantsStore = create<VariantsState>((set, get) => ({
   list: [],
   activeId: "control",
   thumbnails: {},
+  hydratedOpIds: new Set(),
   create: (name, goal, segment, experimentId) => {
     const variant: Variant = {
       id: nanoid(),
@@ -163,7 +180,19 @@ export const useVariantsStore = create<VariantsState>((set, get) => ({
     set((s) => ({ list: s.list.map((v) => (v.id === variantId ? { ...v, score } : v)) })),
   setThumbnail: (variantId, dataUrl) =>
     set((s) => ({ thumbnails: { ...s.thumbnails, [variantId]: dataUrl } })),
-  reset: () => set({ list: [], activeId: "control", thumbnails: {} }),
+  hydrate: (variants) =>
+    set({
+      list: variants,
+      activeId: "control",
+      hydratedOpIds: new Set(variants.flatMap((v) => v.ops.map((o) => o.id))),
+    }),
+  markLive: (opId) =>
+    set((s) => {
+      const next = new Set(s.hydratedOpIds);
+      next.delete(opId);
+      return { hydratedOpIds: next };
+    }),
+  reset: () => set({ list: [], activeId: "control", thumbnails: {}, hydratedOpIds: new Set() }),
 }));
 
 // ── composer (shared state so ExperimentPlan/ComponentCard/preview clicks can drive the
@@ -605,6 +634,50 @@ export const useChatStore = create<ChatState>((set, get) => ({
       activeTextId: null,
       activeReasoningId: null,
     })),
+}));
+
+// ── memory (site memory — M4/#4: memory.md + recent verdicts + resume-diff state, TECH-SPEC §11) ──
+//
+// `content` is injected into buildSystem() every turn (lib/prompts.ts), exactly like CLAUDE.md.
+// The agent curates it via the save_memory tool (lib/tools.ts); the app auto-appends
+// approve/reject verdicts (app/page.tsx watches the chat transcript for settled proposals).
+// `savedSchemaNodes` + `staleNodePaths` are resume-only: the saved snapshot (for lib/resume.ts's
+// id->path remap) and the fingerprint diff against the fresh extraction (lib/memory.ts's
+// diffSchema) — both empty on a fresh (non-resumed) session.
+
+interface MemoryStoreState {
+  content: string; // memory.md — agent-curated durable learnings ("" = none yet)
+  verdicts: Verdict[]; // recent approve/reject decisions w/ reasons (state.json's verdicts[])
+  resumeSummary: string | null; // e.g. "3 learnings on file, last variant scored +0.12, hero unchanged"
+  savedSchemaNodes: PageNode[]; // the PREVIOUS session's schema snapshot (id -> path remap source)
+  staleNodePaths: Set<string>; // paths flagged stale by the resume-time diff
+  setContent: (content: string) => void;
+  addVerdict: (v: Verdict) => void;
+  hydrate: (content: string, verdicts: Verdict[], savedSchemaNodes: PageNode[]) => void;
+  setResumeSummary: (summary: string | null) => void;
+  setStaleInfo: (staleNodePaths: Set<string>) => void;
+  reset: () => void;
+}
+
+export const useMemoryStore = create<MemoryStoreState>((set) => ({
+  content: "",
+  verdicts: [],
+  resumeSummary: null,
+  savedSchemaNodes: [],
+  staleNodePaths: new Set(),
+  setContent: (content) => set({ content }),
+  addVerdict: (v) => set((s) => ({ verdicts: [...s.verdicts, v].slice(-20) })), // keep recent 20
+  hydrate: (content, verdicts, savedSchemaNodes) => set({ content, verdicts, savedSchemaNodes }),
+  setResumeSummary: (resumeSummary) => set({ resumeSummary }),
+  setStaleInfo: (staleNodePaths) => set({ staleNodePaths }),
+  reset: () =>
+    set({
+      content: "",
+      verdicts: [],
+      resumeSummary: null,
+      savedSchemaNodes: [],
+      staleNodePaths: new Set(),
+    }),
 }));
 
 function isErrorOutput(output: unknown): boolean {

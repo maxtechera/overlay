@@ -9,12 +9,23 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { IframeHost } from "@/lib/protocol";
 import { runFirstTurn, runTurn } from "@/lib/agent";
 import { runBriefAndPlan } from "@/lib/brief";
+import {
+  buildResumeSummary,
+  countLearnings,
+  diffSchema,
+  fetchMemory,
+  hostnameOf,
+  postMemory,
+  type MemoryState,
+} from "@/lib/memory";
+import { reapplyOp } from "@/lib/resume";
 import { runSectionScoring } from "@/lib/section-scores";
 import { captureThumbnail } from "@/lib/thumbnail";
 import {
   useChatStore,
   useComposerStore,
   useExperimentsStore,
+  useMemoryStore,
   usePreviewStore,
   useSchemaStore,
   useScoresStore,
@@ -74,6 +85,13 @@ export default function Home() {
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const hostRef = useRef<IframeHost | null>(null);
+  // M4 (#4): set by handleSubmit when GET /api/memory found a saved session for this hostname
+  // (TECH-SPEC §11 resume flow) — carries the saved schema snapshot forward to the extraction
+  // handler below, which diffs it against the fresh extraction (lib/memory.ts's diffSchema) and
+  // decides whether to skip brief/plan/section-score generation (never regenerate on resume).
+  const resumeRef = useRef<{ savedNodes: PageNode[]; hadBrief: boolean } | null>(null);
+  const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const seenVerdictsRef = useRef<Set<string>>(new Set());
 
   // Stable wrapper handed to the agent loop + ChatPane — reads the ref at call time so it
   // works across iframe reloads without needing to re-render consumers.
@@ -81,6 +99,32 @@ export default function Home() {
     const host = hostRef.current;
     if (!host) return Promise.reject(new Error("iframe not ready"));
     return host.sendToIframe(msg);
+  }, []);
+
+  // M4 (#4) — TECH-SPEC §11 save triggers: "after extraction (schema+seo), after brief
+  // generation/edit, after every approve/reject, after every score — fire-and-forget POST, no
+  // save button". One debounced full-state snapshot (below) covers extraction/brief/goal/
+  // experiments/variants changes generically; a SEPARATE, un-debounced call fires right after a
+  // verdict is recorded (see the chat-transcript watcher effect further down) since that's a
+  // discrete, infrequent event worth writing immediately. postMemory itself never throws.
+  const persistState = useCallback(() => {
+    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+    persistTimerRef.current = setTimeout(() => {
+      const site = hostnameOf(useSessionStore.getState().url);
+      if (!site) return;
+      const schemaState = useSchemaStore.getState();
+      const session = useSessionStore.getState();
+      const state: MemoryState = {
+        schema: { nodes: schemaState.order.map((id) => schemaState.nodes[id]), extractedAt: Date.now() },
+        seo: schemaState.seo,
+        brief: session.brief,
+        goal: session.goal,
+        experiments: useExperimentsStore.getState().list,
+        variants: useVariantsStore.getState().list,
+        verdicts: useMemoryStore.getState().verdicts,
+      };
+      void postMemory(site, { state });
+    }, 400);
   }, []);
 
   // ── IframeHost setup ────────────────────────────────────────────────────────
@@ -149,6 +193,13 @@ export default function Home() {
     // once runSectionScoring resolves below — one code path serves both.
     (window as unknown as { __overlayScoresStore?: typeof useScoresStore }).__overlayScoresStore =
       useScoresStore;
+    // Test hooks (M4/#4): memory store (content/verdicts/resumeSummary/staleNodePaths — read
+    // back by resume specs) and reapplyOp (the keyless-provable path-remap + stale-refusal
+    // mechanic for a hydrated variant's op, TECH-SPEC §11 "re-apply action ... valid only for
+    // non-stale targets"). Harmless in production.
+    (window as unknown as { __overlayMemoryStore?: typeof useMemoryStore }).__overlayMemoryStore =
+      useMemoryStore;
+    (window as unknown as { __overlayReapplyOp?: typeof reapplyOp }).__overlayReapplyOp = reapplyOp;
 
     const unsub = host.onUnsolicited((msg) => {
       if (msg.t === "ready") {
@@ -190,15 +241,41 @@ export default function Home() {
               (window as unknown as { __overlayA11y?: Finding[] }).__overlayA11y =
                 res.a11yAudit;
 
+              // M4 (#4) — TECH-SPEC §11 resume: diff the fresh extraction against a saved
+              // snapshot (if handleSubmit found one for this hostname) by path+fingerprint —
+              // "fingerprints that moved or vanished get flagged... instead of silently
+              // trusted." Computed BEFORE runFirstTurn so the greeting can reference it.
+              if (resumeRef.current) {
+                const diff = diffSchema(res.nodes, resumeRef.current.savedNodes);
+                useMemoryStore.getState().setStaleInfo(diff.stalePaths);
+
+                const savedVariants = useVariantsStore.getState().list;
+                const lastScored = [...savedVariants].reverse().find((v) => v.score);
+                const summary = buildResumeSummary({
+                  learningsCount: countLearnings(useMemoryStore.getState().content),
+                  lastScoreDelta: lastScored?.score?.delta,
+                  heroStale: diff.stalePaths.has("hero"),
+                });
+                useMemoryStore.getState().setResumeSummary(summary);
+              }
+
               // First turn: extraction already ran (deterministic); the agent narrates it
               // (TECH-SPEC §5 — the agent never calls ingest/extract itself). The Page Brief +
               // Experiment Plan generate ALONGSIDE it (independent structured-generation
               // calls, PRD §2 "alongside it: the Experiment Plan") — not blocking each other.
               void runFirstTurn(send);
-              // Issue #36: score every section against the brief once it lands — chained
-              // (not fired alongside) so the scoring pass sees the REAL brief, not the
-              // a11y-only placeholder runBriefAndPlan seeds before its first streamed partial.
-              void runBriefAndPlan().then(() => runSectionScoring());
+
+              // M4 (#4): on a RESUMED session with a saved brief, NEVER regenerate it (or the
+              // plan, or section scores derived from it) — "LLM/human artifacts load as-is"
+              // (TECH-SPEC §11). A fresh (non-resumed) session runs the normal generation path.
+              if (!resumeRef.current?.hadBrief) {
+                // Issue #36: score every section against the brief once it lands — chained
+                // (not fired alongside) so the scoring pass sees the REAL brief, not the
+                // a11y-only placeholder runBriefAndPlan seeds before its first streamed partial.
+                void runBriefAndPlan().then(() => runSectionScoring());
+              }
+
+              persistState(); // TECH-SPEC §11 save trigger: "after extraction (schema+seo)"
             }
           })
           .catch((e) => {
@@ -258,10 +335,38 @@ export default function Home() {
       useVariantsStore.getState().reset();
       useScoresStore.getState().reset();
       useComposerStore.getState().setReferenceChip(null);
+      useMemoryStore.getState().reset();
+      resumeRef.current = null;
+      seenVerdictsRef.current = new Set();
       useSessionStore.getState().setUrl(url); // also loads this hostname's persisted context
       useSessionStore.getState().setStatus("ingesting");
       useSessionStore.getState().setBrief(null);
       useSessionStore.getState().setGoal("");
+
+      // M4 (#4) — TECH-SPEC §11 resume: "URL submitted -> GET /api/memory first -> hydrate
+      // brief, goal, ops, verdicts, seo from state.json (LLM/human artifacts are never
+      // regenerated)." Re-extraction still runs fresh below (deterministic, and the live
+      // element map requires it) — the extraction handler diffs it against the saved snapshot.
+      const site = hostnameOf(url);
+      if (site) {
+        const payload = await fetchMemory(site);
+        if (payload) {
+          if (payload.context) useSessionStore.getState().setContext(payload.context);
+          const st = payload.state;
+          if (st?.brief) {
+            useSessionStore.getState().setBrief(st.brief);
+            useChatStore.getState().pushBrief();
+          }
+          if (st?.goal) useSessionStore.getState().setGoal(st.goal);
+          if (st?.experiments && st.experiments.length > 0) {
+            useExperimentsStore.getState().setList(st.experiments);
+            useChatStore.getState().pushPlan();
+          }
+          if (st?.variants && st.variants.length > 0) useVariantsStore.getState().hydrate(st.variants);
+          useMemoryStore.getState().hydrate(payload.memory ?? "", st?.verdicts ?? [], st?.schema.nodes ?? []);
+          resumeRef.current = { savedNodes: st?.schema.nodes ?? [], hadBrief: Boolean(st?.brief) };
+        }
+      }
 
       // Probe the ingest route — if 422, surface the error before setting iframe.src
       const ingestUrl = `/api/ingest?url=${encodeURIComponent(url)}`;
@@ -338,6 +443,47 @@ export default function Home() {
     });
     return unsub;
   }, [iframeReady]);
+
+  // M4 (#4) — TECH-SPEC §11 save triggers, continued: schema/session/experiments/variants
+  // changes all funnel through the SAME debounced persistState (extraction already calls it
+  // directly above; this subscription catches everything else — brief streaming in, goal
+  // edits, experiment status flips, new variants/ops/scores — without instrumenting every
+  // call site individually).
+  useEffect(() => {
+    const unsubs = [
+      useSchemaStore.subscribe(persistState),
+      useSessionStore.subscribe(persistState),
+      useExperimentsStore.subscribe(persistState),
+      useVariantsStore.subscribe(persistState),
+    ];
+    return () => {
+      unsubs.forEach((u) => u());
+      if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+    };
+  }, [persistState]);
+
+  // M4 (#4) — TECH-SPEC §11: "Approve/reject verdicts with reasons are auto-appended by the
+  // app." Watches the chat transcript for `proposal` blocks settling out of "pending" and
+  // records each exactly once (deduped by toolCallId) into the memory store, then persists
+  // immediately — a verdict is a discrete, infrequent event worth writing right away rather
+  // than waiting on the debounce.
+  useEffect(() => {
+    const unsub = useChatStore.subscribe((state) => {
+      for (const b of state.blocks) {
+        if (b.kind !== "proposal" || b.status === "pending") continue;
+        if (seenVerdictsRef.current.has(b.toolCallId)) continue;
+        seenVerdictsRef.current.add(b.toolCallId);
+        useMemoryStore.getState().addVerdict({
+          opId: b.opId ?? b.toolCallId,
+          approved: b.status === "approved",
+          reason: b.reason,
+          at: Date.now(),
+        });
+        persistState();
+      }
+    });
+    return unsub;
+  }, [persistState]);
 
   // ── overlay toggle ──────────────────────────────────────────────────────────
   const handleOverlayToggle = useCallback(async () => {

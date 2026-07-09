@@ -13,6 +13,7 @@
 
 import { parse } from "node-html-parser";
 import runtimeCode from "@/lib/runtime.built.js";
+import { requireAuth } from "@/lib/auth";
 
 const CHROME_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
@@ -46,6 +47,10 @@ function err422(reason: string) {
 }
 
 export async function GET(req: Request) {
+  // Password gate (TECH-SPEC §13): un-gated, /api/ingest is a free fetcher — guard it.
+  const denied = requireAuth(req);
+  if (denied) return denied;
+
   const { searchParams } = new URL(req.url);
   const rawUrl = searchParams.get("url");
 

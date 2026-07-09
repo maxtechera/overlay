@@ -9,9 +9,16 @@
  * Path mapping: /api/anthropic/v1/messages -> https://api.anthropic.com/v1/messages
  */
 
+import { requireAuth } from "@/lib/auth";
+
 export const maxDuration = 300;
 
 export async function POST(req: Request, ctx: { params: Promise<{ p: string[] }> }) {
+  // Password gate (TECH-SPEC §13): when APP_PASSWORD is set, an un-authed request never reaches
+  // the key — this is the load-bearing guard that stops /api/anthropic being an open proxy.
+  const denied = requireAuth(req);
+  if (denied) return denied;
+
   const { p } = await ctx.params;
 
   const apiKey = process.env.ANTHROPIC_API_KEY;

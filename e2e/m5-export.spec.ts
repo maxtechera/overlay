@@ -208,20 +208,24 @@ test("2c · #overlay-force-variant forces the variant on an already-deployed scr
 
   const context = await browser.newContext();
   const page = await context.newPage();
+  // Pre-seed a KNOWN persisted assignment (control) BEFORE the applier runs. This makes the
+  // proof deterministic AND non-vacuous: if the override read from or wrote to storage, these
+  // assertions would flip. (addInitScript runs at document-create on every navigation, in order.)
+  await page.addInitScript((k) => { try { localStorage.setItem(k, "control"); } catch (e) {} }, KEY);
   await page.addInitScript({ content: source });
-  await page.goto(`${FIXTURE_URL}#overlay-force-variant`);
 
+  // (a) Hashed load → variant is forced, but the persisted assignment stays "control".
+  await page.goto(`${FIXTURE_URL}#overlay-force-variant`);
   expect(await page.evaluate(() => (window as unknown as { __overlayVariant?: string }).__overlayVariant)).toBe("variant");
   expect(await currentHeadline(page), "the hash previews the variant even when deployed unforced").toBe(
     "Hash-forced variant headline"
   );
+  expect(await page.evaluate((k) => localStorage.getItem(k), KEY), "the hash-forced value is NEVER persisted").toBe("control");
 
-  // The forced value is transient: reload WITHOUT the hash → the assignment reverts to whatever
-  // pickBucket independently persisted (never the hash-forced value written over it).
-  const stored = await page.evaluate((k) => localStorage.getItem(k), KEY);
+  // (b) Plain reload (no hash) → reverts to the persisted control: the force was transient.
   await page.goto(FIXTURE_URL);
-  const afterReload = await page.evaluate(() => (window as unknown as { __overlayVariant?: string }).__overlayVariant);
-  expect(afterReload, "hash override is not persisted").toBe(stored);
+  expect(await page.evaluate(() => (window as unknown as { __overlayVariant?: string }).__overlayVariant)).toBe("control");
+  expect(await currentHeadline(page), "a no-hash load respects the persisted control assignment").toBe(ORIGINAL_HEADLINE);
 
   await context.close();
 });

@@ -5,14 +5,12 @@
 //   (a) an extraction smoke suite — the extraction ladder (lib/runtime.ts) against committed,
 //       deterministic local HTML fixtures (fixtures/extraction/*.html). Zero network, zero LLM.
 //   (b) a COM sanity suite — the 6 committed fixture pairs (fixtures/com/*.json) with known
-//       ordering. When ANTHROPIC_API_KEY is set, this shells out to the existing, already-
-//       evidenced live judge runner (scripts/com-check.mjs --runs=3, from PR #16/issue #16).
-//       When no key is present (this repo's Anthropic account is currently out of credits — see
-//       issue #6), it runs a keyless, deterministic SELF-TEST of the same grading/threshold
-//       logic (sign detection, delta math, stability-across-runs, fail-detection) against
-//       scripted stand-in scores instead of a live model call. That proves the runner's
-//       assertions have teeth; it does NOT calibrate the real Claude judge — re-run with
-//       ANTHROPIC_API_KEY set (or `node --env-file=.env.local scripts/com-check.mjs`) for that.
+//       ordering, scored via the REAL deterministic core in lib/com.ts (issue #45:
+//       computeDeterministicScore, ALWAYS run, keyless, no model call — mutation-worthy against
+//       the actual scoring math, loaded through scripts/com-load.mjs's esbuild bundle-and-import,
+//       not a duplicated stand-in). When ANTHROPIC_API_KEY is additionally set, this ALSO shells
+//       out to the live-judge comparison (scripts/com-check.mjs --runs=3, from PR #16/issue #16)
+//       as a calibration layer on top of the authoritative deterministic result.
 //
 // Exit code: 0 iff every case in both suites passes. Non-zero otherwise. Deterministic,
 // keyless-by-default, per CLAUDE.md's harness rules.
@@ -22,6 +20,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { loadCom } from "./com-load.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -224,76 +223,86 @@ async function runExtractionSmoke(browser) {
 // ---------------------------------------------------------------------------
 // (b) COM sanity suite
 // ---------------------------------------------------------------------------
+// Issue #45 (deterministic COM core): the COM sanity suite no longer depends on a scripted
+// stand-in. It exercises the REAL lib/com.ts deterministic scorer (computeDeterministicScore,
+// loaded via scripts/com-load.mjs's esbuild bundle-and-import — no hand-duplicated math) against
+// all 6 committed fixtures/com/*.json, ALWAYS, keyless. A mutation to the real scoring logic
+// (e.g. an inverted sign) fails this suite directly — see the mutation-proof case below.
+//
+// When ANTHROPIC_API_KEY is additionally set, this ALSO shells out to the live-judge comparison
+// (scripts/com-check.mjs --runs=3) as a calibration layer on top — informational alongside the
+// now-authoritative deterministic result, folded into the same pass/fail gate.
 async function runComSanity() {
   console.log("\n=== (b) COM sanity suite ===\n");
+  console.log(
+    "Running the REAL deterministic core (lib/com.ts's computeDeterministicScore) against all 6\n" +
+      "fixtures/com/*.json — keyless, no model call, mutation-worthy (inverts the real scorer's\n" +
+      "math, not a stand-in).\n"
+  );
 
-  const hasKey = !!process.env.ANTHROPIC_API_KEY;
+  await runComDeterministicSuite();
 
-  if (hasKey) {
+  if (process.env.ANTHROPIC_API_KEY) {
     console.log(
-      "ANTHROPIC_API_KEY present — running the LIVE judge (scripts/com-check.mjs --runs=3) against all 6 fixtures/com/*.json.\n"
+      "\nANTHROPIC_API_KEY present — ALSO running the live-judge comparison (scripts/com-check.mjs --runs=3).\n"
     );
     const result = spawnSync(process.execPath, [join(ROOT, "scripts", "com-check.mjs"), "--runs=3"], {
       stdio: "inherit",
       env: process.env,
     });
-    record("COM sanity (LIVE judge): scripts/com-check.mjs --runs=3 exits 0", result.status === 0, `exit ${result.status}`);
+    record("COM sanity (live-judge comparison): scripts/com-check.mjs --runs=3 exits 0", result.status === 0, `exit ${result.status}`);
   } else {
     console.log(
-      "ANTHROPIC_API_KEY not set — the LIVE judge is UNVERIFIED-LIVE this run (skips cleanly, per\n" +
-        "CLAUDE.md's keyless-CI rule). Running a keyless, deterministic SELF-TEST of the same\n" +
-        "grading logic (sign detection, delta math, stability-across-3-runs, fail-detection)\n" +
-        "against scripted stand-in scores instead of a real model call. This proves the runner's\n" +
-        "assertions have teeth; it does NOT calibrate the real Claude judge — re-run with\n" +
-        "ANTHROPIC_API_KEY set (or `node --env-file=.env.local scripts/com-check.mjs`) for that.\n"
+      "\nANTHROPIC_API_KEY not set — live-judge comparison skipped cleanly (deterministic core above is\n" +
+        "the authoritative, always-run check per issue #45)."
     );
-    await runComKeylessSelfTest();
   }
 }
 
-// Mirrors lib/com.ts's delta math (delta = variant - control) and scripts/com-check.mjs's
-// sign/threshold logic exactly, but grades a SCRIPTED {control, variant} pair instead of a live
-// generateObject() call — deterministic, network-free. Validates the grading/threshold code,
-// not the model's judgment (see the console banner in runComSanity above).
-function gradeCanned(control, variant, expectedSign, maxAbsDelta = 0.05) {
-  const delta = variant - control;
-  const sign = delta > 0.005 ? "positive" : delta < -0.005 ? "negative" : "zero";
-  const pass = expectedSign === "zero" ? Math.abs(delta) <= maxAbsDelta : sign === expectedSign;
-  return { delta, sign, pass };
+function signOf(delta) {
+  return delta > 0.005 ? "positive" : delta < -0.005 ? "negative" : "zero";
 }
 
-async function runComKeylessSelfTest() {
+function checkExpectation(delta, expectedSign, maxAbsDelta) {
+  if (expectedSign === "zero") return Math.abs(delta) <= (maxAbsDelta ?? 0.05);
+  return signOf(delta) === expectedSign;
+}
+
+async function runComDeterministicSuite() {
+  const { computeDeterministicScore } = await loadCom();
   const files = (await readdir(COM_FIXTURES_DIR)).filter((f) => f.endsWith(".json")).sort();
 
   for (const file of files) {
     const fixture = JSON.parse(await readFile(join(COM_FIXTURES_DIR, file), "utf-8"));
-    const { expectedSign, maxAbsDelta } = fixture;
+    const { expectedSign, maxAbsDelta, input } = fixture;
 
-    // Scripted stand-in score matching this fixture's own (human-authored, PR #16) expectedSign
-    // — gives the grading math something concrete to check. Run 3x to prove sign never flips on
-    // identical input, the same property com-check.mjs's --runs=3 validates live.
-    const [control, variant] =
-      expectedSign === "positive" ? [0.35, 0.72] : expectedSign === "negative" ? [0.72, 0.35] : [0.55, 0.55];
-
-    const runs = [];
-    for (let i = 0; i < 3; i++) runs.push(gradeCanned(control, variant, expectedSign, maxAbsDelta));
-    const allPass = runs.every((r) => r.pass);
-    const distinctSigns = new Set(runs.map((r) => r.sign));
+    const score = computeDeterministicScore(input);
+    const sign = signOf(score.delta);
+    const ok = checkExpectation(score.delta, expectedSign, maxAbsDelta);
     record(
-      `${file}: scripted stand-in scores in the expected direction (${expectedSign}), stable across 3 runs`,
-      allPass && distinctSigns.size === 1,
-      `delta=${runs[0].delta.toFixed(3)} sign=${runs[0].sign}`
+      `${file}: deterministic core scores in the expected direction (${expectedSign})`,
+      ok,
+      `delta=${score.delta.toFixed(3)} sign=${sign} reasons=[${score.reasons.join(" | ")}]`
     );
   }
 
-  // Deliberately-wrong case — proves the checker can actually FAIL, not just always pass. Take
-  // fixture 01's expectedSign ("positive") and force a scripted response with the OPPOSITE
-  // sign; the grading logic must report this as a failure.
-  const wrong = gradeCanned(0.72, 0.35, "positive");
+  // Mutation-worthy proof — swapping control and variant on a non-zero fixture must flip the
+  // sign (proves the scorer actually responds to which text is which, not a hardcoded verdict;
+  // inverting the real math in lib/com.ts would be caught by the direction checks above, this
+  // proves the checker isn't vacuously always-true on symmetric input).
+  const betterFixture = JSON.parse(
+    await readFile(join(COM_FIXTURES_DIR, "01-obviously-better.json"), "utf-8")
+  );
+  const forward = computeDeterministicScore(betterFixture.input);
+  const swapped = computeDeterministicScore({
+    ...betterFixture.input,
+    control: betterFixture.input.variant,
+    variant: betterFixture.input.control,
+  });
   record(
-    "self-test: a deliberately-inverted scripted score is correctly flagged FAIL (proves the checker isn't vacuous)",
-    wrong.pass === false,
-    `delta=${wrong.delta.toFixed(3)} pass=${wrong.pass} (expected pass=false)`
+    "mutation-worthy: swapping control/variant on 01-obviously-better flips the sign",
+    signOf(forward.delta) === "positive" && signOf(swapped.delta) === "negative",
+    `forward=${forward.delta.toFixed(3)} swapped=${swapped.delta.toFixed(3)}`
   );
 }
 

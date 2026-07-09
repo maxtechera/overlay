@@ -11,7 +11,7 @@
  * or the user starts a fresh session).
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { resolveOpTarget } from "@/lib/resume";
 import { useMemoryStore, useVariantsStore } from "@/lib/store";
 import type { SendToIframe } from "@/lib/tools";
@@ -25,11 +25,30 @@ export function ResumeOpsPanel({ send }: { send: SendToIframe }) {
   const [pendingOpId, setPendingOpId] = useState<string | null>(null);
   const [results, setResults] = useState<Record<string, { applied: boolean; reason?: string }>>({});
 
-  if (hydratedOpIds.size === 0) return null;
+  // A new session (fresh URL submit) resets the variants store to an empty list BEFORE
+  // hydrate() repopulates it — clear any leftover local confirmation state from a PREVIOUS
+  // site's session at that same reset point, so a stale "re-applied" badge never survives
+  // into an unrelated resumed session.
+  useEffect(() => {
+    if (list.length === 0) setResults({});
+  }, [list]);
+
+  // Bug found in review (PR #41 verification): reapplyOp's success path calls markLive, which
+  // removes the op from hydratedOpIds — but hydratedOpIds was ALSO this component's sole
+  // membership gate for showing a row, so a successful re-apply made its own row vanish before
+  // the "re-applied" confirmation could ever render. A row now stays visible if it's either
+  // still hydrated (pending) OR was successfully re-applied THIS session (tracked locally).
+  const relevantOpIds = new Set([
+    ...hydratedOpIds,
+    ...Object.entries(results)
+      .filter(([, r]) => r.applied)
+      .map(([id]) => id),
+  ]);
+  if (relevantOpIds.size === 0) return null;
 
   const rows = list.flatMap((v) =>
     v.ops
-      .filter((o) => hydratedOpIds.has(o.id))
+      .filter((o) => relevantOpIds.has(o.id))
       .map((o) => ({ variantId: v.id, variantName: v.name, op: o, ...resolveOpTarget(o, savedSchemaNodes, staleNodePaths) }))
   );
   if (rows.length === 0) return null;

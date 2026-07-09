@@ -78,3 +78,33 @@ export async function extractOnFixture(
     a11yAudit: Array<{ path: string; issue: string }>;
   };
 }
+
+/**
+ * Send `{t: "apply-op", ...}` directly via window.postMessage and await the "op-applied" echo
+ * for THIS opId (M3/#3's warn-only regression-check specs — e2e/m3-variants.spec.ts). Same
+ * bypass-the-handshake pattern as extractOnFixture: we drive the runtime's message protocol
+ * directly, no iframe/host needed.
+ */
+export async function applyOpOnFixture(
+  page: Page,
+  opId: string,
+  op: { op: "update-content"; target: string; slots: Record<string, { text?: string; href?: string; src?: string; alt?: string }>; rationale: string }
+): Promise<{ ok: boolean; error?: string; warnings?: string[] }> {
+  const result = await page.evaluate(
+    ({ opId, op }) => {
+      return new Promise((resolve) => {
+        const listener = (e: MessageEvent) => {
+          const msg = e.data as { t?: string; opId?: string; ok?: boolean; error?: string; warnings?: string[] };
+          if (msg && msg.t === "op-applied" && msg.opId === opId) {
+            window.removeEventListener("message", listener);
+            resolve({ ok: !!msg.ok, error: msg.error, warnings: msg.warnings });
+          }
+        };
+        window.addEventListener("message", listener);
+        window.postMessage({ t: "apply-op", opId, op, requestId: `fixture-apply-${opId}` }, "*");
+      });
+    },
+    { opId, op }
+  );
+  return result as { ok: boolean; error?: string; warnings?: string[] };
+}

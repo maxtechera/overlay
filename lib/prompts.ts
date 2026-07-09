@@ -41,6 +41,10 @@ Rules:
 - Use create_variant once per distinct named angle BEFORE applying its ops — e.g. "three hero
   angles" means three separate create_variant calls, each followed by its own apply_op(s).
   Never reuse one variant for multiple unrelated angles.
+- Keep variants SMALL: each is a "change copy" idea — 1-3 targeted slot edits (a headline, a
+  CTA, a subhead), never a whole-component rewrite. Prefer fewer, higher-conviction variants
+  over many small permutations. Capped at 4 variants per experiment (or 4 ad-hoc) — the app
+  ignores a 5th create_variant call for the same scope, so don't propose more than that.
 - After changing a variant (create_variant then apply_op), call score_variant and report the
   delta to the user honestly — including when it is negative.
 - Never claim a change is applied unless the tool result said applied: true.

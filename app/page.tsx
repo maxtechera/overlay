@@ -20,10 +20,11 @@ import {
   useSettingsStore,
   useVariantsStore,
 } from "@/lib/store";
+import { makeTools } from "@/lib/tools";
 import type { SendToIframe } from "@/lib/tools";
 import type { PageNode } from "@/lib/types";
 import { ChatPane } from "@/components/ChatPane";
-import { ContextPanel } from "@/components/ContextPanel";
+import { ContextToolbar } from "@/components/ContextToolbar";
 import { SettingsBar } from "@/components/SettingsBar";
 import { VariantTabs } from "@/components/VariantTabs";
 
@@ -136,6 +137,10 @@ export default function Home() {
     // actually succeed against a live, cross-origin-image-laden site.
     (window as unknown as { __overlayCaptureThumbnail?: typeof captureThumbnail }).__overlayCaptureThumbnail =
       captureThumbnail;
+    // Test hook (issue #28, item 3): expose makeTools itself so keyless e2e specs can invoke
+    // the REAL create_variant tool logic directly (the ≤4-per-experiment clamp) without a live
+    // model — same pattern as __overlayCaptureThumbnail above. Harmless in production.
+    (window as unknown as { __overlayMakeTools?: typeof makeTools }).__overlayMakeTools = makeTools;
 
     const unsub = host.onUnsolicited((msg) => {
       if (msg.t === "ready") {
@@ -352,6 +357,7 @@ export default function Home() {
             {statusStr}
           </span>
         )}
+        <ContextToolbar />
         <SettingsBar />
       </div>
 
@@ -363,8 +369,6 @@ export default function Home() {
             <span className="title">Chat</span>
             <span className="sub">agent loop · reasoning · proposals</span>
           </div>
-
-          <ContextPanel />
 
           {/* deterministic extraction status (independent of the agent's own reply) */}
           <div className="chat-scroll" data-testid="chat-scroll" style={{ flex: "none", maxHeight: 160 }}>
@@ -384,54 +388,54 @@ export default function Home() {
               </div>
             )}
 
-            {schema.state === "ready" && heroNodes.length > 0 && (
-              <div className="msg agent">
-                <div className="who">extraction</div>
-                <div className="body" data-testid="schema-msg">
-                  <strong>Hero detected:</strong>{" "}
-                  <span className="mono">{heroNodes[0].path}</span>
-                  {heroNodes[0].via && (
-                    <span className="mono" style={{ color: "var(--faint)" }}>
-                      {" "}
-                      · via:{heroNodes[0].via}
-                    </span>
-                  )}
-                  <br />
-                  Headline:{" "}
-                  <em>{heroNodes[0].slots.headline?.text?.slice(0, 80) ?? "(none)"}</em>
-                  {heroNodes[0].facts && (
-                    <span style={{ color: "var(--faint)", fontSize: 12 }}>
-                      {" "}
-                      ({heroNodes[0].facts.lines ?? "?"} lines · {heroNodes[0].facts.fontPx ?? "?"}
-                      px · contrast{" "}
-                      {heroNodes[0].facts.contrast !== undefined
-                        ? `${heroNodes[0].facts.contrast}:1`
-                        : "n/a"}
-                      )
-                    </span>
-                  )}
-                  {heroNodes[0].slots.subhead && (
-                    <>
-                      <br />
-                      Subhead:{" "}
-                      <em>{heroNodes[0].slots.subhead.text?.slice(0, 80)}</em>
-                    </>
-                  )}
-                  {heroNodes[0].slots.cta && (
-                    <>
-                      <br />
-                      CTA: <em>{heroNodes[0].slots.cta.text}</em>
-                    </>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* M2a — full ladder summary + ADA rollup (deterministic, computed off facts) */}
+            {/* Issue #28 (item 2, "quieter transcript"): the hero summary and the full-ladder/
+                ADA rollup used to render as two separate "extraction" messages back-to-back —
+                collapsed into ONE block so extraction reads as a single deterministic beat, not
+                a repeated firehose entry. */}
             {schema.state === "ready" && (
               <div className="msg agent">
                 <div className="who">extraction</div>
-                <div className="body" data-testid="ladder-summary">
+                {heroNodes.length > 0 && (
+                  <div className="body" data-testid="schema-msg">
+                    <strong>Hero detected:</strong>{" "}
+                    <span className="mono">{heroNodes[0].path}</span>
+                    {heroNodes[0].via && (
+                      <span className="mono" style={{ color: "var(--faint)" }}>
+                        {" "}
+                        · via:{heroNodes[0].via}
+                      </span>
+                    )}
+                    <br />
+                    Headline:{" "}
+                    <em>{heroNodes[0].slots.headline?.text?.slice(0, 80) ?? "(none)"}</em>
+                    {heroNodes[0].facts && (
+                      <span style={{ color: "var(--faint)", fontSize: 12 }}>
+                        {" "}
+                        ({heroNodes[0].facts.lines ?? "?"} lines · {heroNodes[0].facts.fontPx ?? "?"}
+                        px · contrast{" "}
+                        {heroNodes[0].facts.contrast !== undefined
+                          ? `${heroNodes[0].facts.contrast}:1`
+                          : "n/a"}
+                        )
+                      </span>
+                    )}
+                    {heroNodes[0].slots.subhead && (
+                      <>
+                        <br />
+                        Subhead:{" "}
+                        <em>{heroNodes[0].slots.subhead.text?.slice(0, 80)}</em>
+                      </>
+                    )}
+                    {heroNodes[0].slots.cta && (
+                      <>
+                        <br />
+                        CTA: <em>{heroNodes[0].slots.cta.text}</em>
+                      </>
+                    )}
+                  </div>
+                )}
+                {/* M2a — full ladder summary + ADA rollup (deterministic, computed off facts) */}
+                <div className="body" data-testid="ladder-summary" style={{ marginTop: heroNodes.length > 0 ? 6 : 0 }}>
                   <span data-testid="section-count">
                     {
                       schema.nodes.filter((n) => n.type === "section" || n.type === "collection")

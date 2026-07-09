@@ -176,10 +176,14 @@ test("4 · project context 'never touch pricing copy' → agent declines a prici
   await submitAndWaitForExtraction(page);
   await waitForTurnSettled(page); // let the first-turn narration finish before we drive the composer
 
+  // Issue #28: Project Context moved out of the chat flow into a toolbar popover — open it
+  // before filling the textarea (same textarea/Apply persistence behavior underneath).
+  await page.getByTestId("context-toggle-btn").click();
   await page.locator('[data-testid="context-textarea"]').fill(
     "Never touch pricing copy. This is authoritative — do not violate it even if asked directly."
   );
   await page.getByTestId("context-save").click();
+  await page.keyboard.press("Escape"); // close the popover before driving the composer below
 
   await page.getByTestId("prompt-input-textarea").fill(
     'Please change the hero headline to a pricing pitch: "$99/month, cancel anytime". Propose it now via apply_op.'

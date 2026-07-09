@@ -9,8 +9,9 @@
  */
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { useExperimentsStore, useVariantsStore } from "@/lib/store";
+import { useChatStore, useExperimentsStore, useVariantsStore } from "@/lib/store";
 import type { SendToIframe } from "@/lib/tools";
 import type { Experiment, Variant } from "@/lib/types";
 import { suggestedAllocation, switchActiveVariant } from "@/lib/variants";
@@ -134,8 +135,18 @@ export function VariantGalleryBlock({ send }: { send: SendToIframe }) {
 
   return (
     <div className="space-y-4" data-testid="variant-gallery">
-      <div className="font-mono text-muted-foreground text-xs uppercase tracking-wide">
-        Variant Gallery ({list.length})
+      <div className="flex items-center justify-between gap-2">
+        <div className="font-mono text-muted-foreground text-xs uppercase tracking-wide">
+          Variant Gallery ({list.length})
+        </div>
+        <Button
+          data-testid="open-export-btn"
+          onClick={() => useChatStore.getState().pushExport()}
+          size="sm"
+          variant="outline"
+        >
+          Export
+        </Button>
       </div>
       {[...byExperiment.entries()].map(([expId, arms]) => {
         const experiment = experiments.find((e) => e.id === expId);

@@ -11,7 +11,9 @@
     "typecheck": "tsc --noEmit",
     "pretest:e2e": "node scripts/build-runtime.mjs",
     "test:e2e": "playwright test",
-    "com:check": "node --env-file=.env.local scripts/com-check.mjs"
+    "com:check": "node --env-file=.env.local scripts/com-check.mjs",
+    "preeval": "node scripts/build-runtime.mjs",
+    "eval": "node scripts/eval.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.94",

@@ -10,10 +10,20 @@ import type { PageNode } from "./types";
 
 // ── Message types ──────────────────────────────────────────────────────────────
 
+// Section optimization-opportunity score (issue #36) — keyed by node PATH (stable within a
+// single extraction session, unlike node ids which are reassigned by extractPage on every
+// re-extract). 0-100, "reasons" terse (surfaced only as the badge's hover title, not rendered).
+export type SectionScore = { score: number; reason?: string };
+
 export type ParentMsg =
   // hostnameOverride is a debug-only hook (e2e specs) — see lib/runtime.ts's "extract" handler.
   | { t: "extract"; requestId: string; hostnameOverride?: string }
   | { t: "overlay"; on: boolean; requestId: string }
+  // Issue #36: pushes/replaces the per-section score set the overlay badges render from. Kept
+  // as its own message rather than piggybacked on "overlay" — scores land asynchronously
+  // (after the brief resolves), independent of the on/off toggle, and re-sending "overlay"
+  // would conflate "toggle visibility" with "here's new data to draw".
+  | { t: "scores"; scores: Record<string, SectionScore>; requestId: string }
   | { t: "apply-op"; opId: string; op: import("./types").Op; requestId: string }
   | { t: "revert-op"; opId: string; requestId: string };
 
@@ -31,6 +41,7 @@ export type RuntimeMsg =
   | { t: "op-reverted"; opId: string; requestId?: string }
   | { t: "selected"; nodeId: string }
   | { t: "overlay-ack"; on: boolean; requestId?: string }
+  | { t: "scores-ack"; requestId?: string }
   // A slot-level overlay box click (issue #32). Unsolicited (no parent request preceded it) but
   // still carries a self-generated requestId per the "every postMessage carries a requestId"
   // rule — lib/runtime.ts mints one with its own tiny counter, same pattern as this file's

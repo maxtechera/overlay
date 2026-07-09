@@ -49,6 +49,20 @@ async function waitForPlanSettled(page: Page) {
   await page.waitForSelector('[data-testid="experiment-plan"]', { timeout: 90_000 });
 }
 
+/**
+ * Switch to the real "Auto-apply (revertible)" permission mode (PRD §4.3/TECH-SPEC §9) —
+ * apply_op's execute() otherwise awaits a human ProposalCard click that never comes, hanging
+ * `streaming` at true forever. Build-arms/three-angles flows script several sequential
+ * apply_op calls in one turn; auto mode is the realistic way a user runs that, not a bypass.
+ */
+async function enableAutoApply(page: Page) {
+  await page.evaluate(() => {
+    (window as unknown as { __overlaySettingsStore: { getState: () => { setApprovalMode: (m: "auto" | "ask") => void } } })
+      .__overlaySettingsStore.getState()
+      .setApprovalMode("auto");
+  });
+}
+
 // ── 1 (keyless) · suggestedAllocation: control fixed 25%, remainder ∝ deltas ────────────
 
 test("1 · suggestedAllocation — control fixed at 25%, remaining 75% proportional to COM deltas @m3", async () => {
@@ -398,6 +412,7 @@ test("9 · Build arms on a plan card → agent creates 2 arms for THAT experimen
   test.setTimeout(150_000);
   await submitAndWaitForExtraction(page);
   await waitForPlanSettled(page);
+  await enableAutoApply(page); // building 2 arms means several sequential apply_op calls
 
   const targetExp = await page.evaluate(() => {
     const experiments = (window as unknown as { __overlayExperimentsStore: { getState: () => { list: { id: string; name: string; targetPath: string; hypothesis: string }[] } } })
@@ -448,6 +463,7 @@ test("10 · 'three different hero angles' → 3 separately named variants create
   test.setTimeout(150_000);
   await submitAndWaitForExtraction(page);
   await waitForTurnSettled(page); // let first-turn narration finish before driving the composer
+  await enableAutoApply(page); // three variants means several sequential apply_op calls
 
   await page.getByTestId("prompt-input-textarea").fill(
     "Give me three different hero angles for this page — three distinct headline rewrites, each as its own named variant. Apply each variant's headline change, then move to the next."
@@ -470,6 +486,7 @@ test("11 · adversarial 'make it vague and generic' → negative COM delta, repo
   test.setTimeout(150_000);
   await submitAndWaitForExtraction(page);
   await waitForTurnSettled(page);
+  await enableAutoApply(page); // create_variant + apply_op + score_variant in one turn
 
   await page.getByTestId("prompt-input-textarea").fill(
     "Create a new variant that makes the hero headline deliberately vague and generic — strip out any specifics, make it as bland corporate-speak as possible. Apply it, then score it and tell me the delta honestly, even if it's worse."

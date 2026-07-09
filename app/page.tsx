@@ -17,6 +17,7 @@ import {
   usePreviewStore,
   useSchemaStore,
   useSessionStore,
+  useSettingsStore,
   useVariantsStore,
 } from "@/lib/store";
 import type { SendToIframe } from "@/lib/tools";
@@ -106,6 +107,12 @@ export default function Home() {
     // exercise it) and read back activeId/ops for the tab-switch specs.
     (window as unknown as { __overlayVariantsStore?: typeof useVariantsStore }).__overlayVariantsStore =
       useVariantsStore;
+    // Test hook (M3/#3): settings store, so live @ai specs that script several sequential
+    // apply_op calls (build 2 arms, three hero angles) can switch to the real "Auto-apply
+    // (revertible)" permission mode (PRD §4.3) instead of clicking every ProposalCard's
+    // Approve button by hand — a legitimate product mode, not a test-only bypass.
+    (window as unknown as { __overlaySettingsStore?: typeof useSettingsStore }).__overlaySettingsStore =
+      useSettingsStore;
     // Test hook: expose the chat store so e2e specs can poll `streaming` to know when a full
     // agent turn (which may span multiple tool calls) has actually settled, instead of racing
     // the first partial text block that streams in. Harmless in production.

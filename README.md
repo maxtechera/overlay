@@ -1,134 +1,191 @@
-# Overlay — an agentic harness for building optimized experiments on any live website
+# Overlay
 
-Paste **any live URL** into a chat. An agent reads the page, produces a grounded **Page Brief**
-(design system, brand language, ICP, pain points, accessibility audit), then proposes and applies
-**A/B-test variants** to a live preview — each pre-scored by an independent **Conversion
-Optimization Model (COM)**, each gated by human approval — and finally **exports a runnable,
-dependency-free experiment script** you can paste onto the real page.
+**Point an agent at any live URL. It reads the page, writes an optimization brief, proposes and
+scores A/B‑test variants against an independent model, and hands you a runnable experiment you can
+paste onto the real site.**
 
-It's **Claude Code's shape** — agent loop, tool belt, context-by-exploration, permission gates,
-persistent per-site memory — pointed at a webpage you *don't own* instead of a repo.
+Overlay is Claude Code's shape — an agent loop with a tool belt, context gathered by exploration,
+human approval gates, and per‑site memory — turned outward, at a webpage you don't own instead of a
+repository. It's a single‑operator take on the loop behind autonomous landing‑page optimization:
+*understand → generate → score → ship*, with the guardrails that make "an agent editing a
+stranger's website" safe to run and safe to demo.
 
-> **Why this exists / relevance to Coframe.** Coframe's product is autonomous, LLM-driven
-> landing-page optimization: agents that understand a page, generate variants, and run continuous
-> experiments. Overlay is a from-scratch, single-operator take on that exact loop —
-> *understand → generate → score → ship an experiment* — built to show the engineering
-> underneath: a browser-side agent that reasons over a real DOM, a deterministic scorer kept
-> honest by construction, and the guardrails (sandboxing, injection defense, human approval) that
-> make "an agent editing a stranger's website" safe to demo.
+> **Live demo:** <https://coframe-pagebuilder.vercel.app> — password‑protected (shared with
+> reviewers). Everything up to the agent works out of the box; the live agent needs an API key +
+> credits configured on the deployment (see *Running it*).
 
 ---
 
-## The loop, end to end
+## What it feels like to use
+
+You paste a URL and hit analyze. A minute later the right pane shows the real page, rendered
+faithfully, with a translucent overlay boxing each piece it understood — the headline, the subhead,
+the body, the calls to action. The left pane is a conversation.
+
+The agent introduces the page back to you: a grounded **brief** (who it's for, the problem it
+solves, the value proposition, an accessibility pass, a couple of addressable audience segments) and
+an **experiment plan** — six to ten concrete hypotheses, each aimed at a component that actually
+exists on the page.
+
+You ask for changes in plain language. "Three different hero angles." Each edit arrives as a
+slot‑level **diff card** you approve or reject; approved edits change the live preview immediately.
+Variants collect into a small **carousel** you flip through — each labeled with a **conversion
+score** and a delta versus control, computed by a model that had no hand in writing it. Ask it to
+"make the copy vague and generic" and it will build that variant, score it *negative*, and tell you
+so plainly.
+
+When you're happy, you export. Out comes a **dependency‑free `<script>`** under a couple of
+kilobytes: it buckets visitors, persists their assignment, exposes the choice to your existing
+analytics, re‑finds each element on the live page by a fingerprint (and skips rather than guesses if
+the page has changed since), and makes zero network calls of its own. Paste it in a `<head>` and the
+experiment is running.
+
+---
+
+## The problems worth talking about
+
+Most of the engineering here is in the seams — the places where "drive an agent over a live third‑
+party page" stops being obvious.
+
+**Scripting a page you don't control.** A remote page can't be embedded and scripted from another
+origin. Overlay fetches it server‑side, strips the Content‑Security‑Policy and any third‑party
+experimentation scripts that would fight it, injects a `<base href>` and a small runtime, and serves
+the result *same‑origin* from its own host. The fetch is guarded against SSRF (no localhost, no
+private ranges), and pages that can't be served cleanly — bot walls, non‑HTML — are reported as a
+clean error instead of a hang.
+
+**Images that vanished on hydration.** Early on, ingested pages rendered with every image broken.
+The served HTML was correct — root‑relative optimizer URLs resolved against the target origin via
+the injected `<base>`. But the *target's own framework runtime*, once it hydrated inside the iframe,
+**deleted the `<base>` tag and rewrote every `src` back to a root‑relative path**, so the browser
+went looking for the images on Overlay's host and got HTML back. The fix is two layers: absolutize
+asset URLs at ingest time for the first paint, and a small **`MutationObserver` inside the runtime**
+that re‑absolutizes any `src`/`srcset` the page tries to revert — surviving hydration without
+freezing the page. (An adversarial review caught the first, HTML‑only fix passing its test while the
+images were still visibly broken; the lesson — *"a served‑HTML assertion is not proof of rendering"*
+— is now written into the project's operating notes.)
+
+**Keeping the generator honest.** The conversion model that scores variants imports nothing from the
+agent or the application stores. It can see *what* a variant is, never *how* it was made — so it
+can't root for its own work. The separation is a hard rule in the codebase and is checked on every
+change; it's why "make it worse" produces an honest negative score instead of a rationalization.
+
+**A runtime that has to survive anywhere.** The code injected into the third‑party page is
+dependency‑free by contract — plain DOM and `MutationObserver`, no bundler globals, no assumptions
+about the host — because it runs inside pages nobody vetted. Every message it exchanges with the app
+carries a request id, and every tool the agent calls returns a value rather than throwing across the
+`postMessage` boundary; a timeout becomes an error string, never a wedged interface.
+
+**Treating page content as untrusted input.** Text extracted from the page is a prompt‑injection
+surface. It's fenced with explicit markers in both the system prompt and every tool result, and the
+agent is instructed to treat anything inside those markers as data — with a fixture test proving it
+refuses an instruction smuggled in through page copy.
+
+**Grounding, not vibes.** The brief and the plan are generated as structured objects and then
+validated against the real extracted schema: a hypothesis that targets a component the page doesn't
+have is dropped before it ever reaches you, and a CTA the model invented is stripped from the audit.
+No claim survives that doesn't trace to something on the page.
+
+**Honest limits as a feature.** Bot walls, pages with no detectable hero, and edits that a site's own
+hydration later wipes out are all surfaced, not papered over. A tool that quietly guesses is worse
+than one that tells you it couldn't be sure.
+
+---
+
+## What's in the box today
+
+- **Ingest & sandbox** — fetch, sanitize, inject runtime, serve same‑origin; SSRF‑guarded; clean
+  failure reporting.
+- **Deterministic extraction** — a ladder of per‑site profiles → framework fingerprints → semantic
+  HTML → layout heuristics turns a page into a typed component schema, with computed facts (line
+  counts, font sizes, WCAG contrast) and an accessibility audit.
+- **The agent tick** — a browser‑side streaming loop with a tool belt, visible reasoning, prompt
+  caching on the stable context, and per‑turn token/latency telemetry.
+- **Understanding artifacts** — a grounded, editable Page Brief and an Experiment Plan of targeted
+  hypotheses; a project‑context panel and a model/thinking control that take effect on the next turn.
+- **A fine‑grained overlay** — slot‑level boxes (title, subtitle, body, CTA) drawn over the live
+  preview, on by default; click a box to carry that element into your next message as context.
+- **Variants & scoring** — natural‑language edits become approve/reject diff cards; variants become
+  tabs and a compact carousel, each pre‑scored by the independent conversion model with a
+  prior‑labeled traffic split; warn‑only regression checks (overflow, line growth, contrast, lost
+  alt text) flag risky edits without blocking them.
+- **Export** — a dependency‑free, self‑contained applier snippet with visitor bucketing, a
+  fingerprint re‑find that warns‑and‑skips on mismatch, a force‑preview hash, and zero telemetry of
+  its own.
+- **A password gate** — a shared‑password guard on every API route so the deployment can go public
+  without turning the proxy into an open door to the API key.
+- **Deployed** — live on Vercel behind the gate.
+
+The full user arc — analyze a page, read the brief, build and score variants, export, run the snippet
+on the original page — works end to end. The one thing the public deployment needs to exercise the
+*live agent* is an API key and credits on the hosting side; the rest is already there to click
+through.
+
+---
+
+## How it's built
 
 ```
- URL ─▶ ingest (sandbox + inject) ─▶ typed component schema ─▶ Page Brief + Experiment Plan
-                                                                      │
-        exportable A/B <script>  ◀── COM-scored variants ◀── agent proposes ops (human-approved)
+ Chat + agent loop (browser) ──postMessage──▶ runtime injected into the proxied page
+        │                                              ▲
+        └── HTTP ──▶ /api/anthropic  (key proxy)       └── /api/ingest  (fetch · sanitize · inject)
+                     /api/auth       (password gate)
 ```
 
-1. **Ingest** — fetch the page server-side, strip CSP/third-party experiment scripts, inject a
-   `<base href>` and our runtime, and serve it **same-origin** so it can be scripted safely in an
-   iframe. SSRF-guarded; bot walls and non-HTML are reported cleanly, never guessed at.
-2. **Extraction** — a deterministic ladder (per-site profiles → framework fingerprints → semantic
-   HTML → layout heuristics) turns the page into a **typed component schema** with computed facts
-   (line counts, font px, WCAG contrast) and an ADA audit.
-3. **Understand** — the agent streams a **Page Brief** (`generateObject`, every field grounded to a
-   real extracted component — invented paths are dropped app-side) and an **Experiment Plan**
-   (6–10 hypotheses, each targeting a validated component path).
-4. **Generate** — natural-language instructions become **constrained ops** against the schema,
-   shown as slot-level diff cards you **approve or reject**. Variants become **tabs** (Control · A ·
-   B · …); switching replays that arm's ops over a clean control.
-5. **Score** — an **independent COM** rates control vs. variant and reports the **delta**. The
-   gallery ranks arms and labels a prior-based traffic allocation (control 25%, rest ∝ deltas).
-6. **Export** — any saved variant becomes a **dependency-free `<script>`** (<2 KB): visitor
-   bucketing in localStorage, `window.__overlayVariant` exposed for the site's own analytics, and
-   a fingerprint re-check against the original page (warn-and-skip on mismatch — never guesses).
-   Zero network calls; you measure with your existing analytics.
+A thin Next.js app hosts three server routes — a byte‑level pass‑through proxy that keeps the API key
+on the server, the ingest/sanitize endpoint, and the auth gate. Everything else runs in the browser:
+the agent loop, the stores, the extraction and overlay logic (bundled into the injected runtime), the
+conversion model, and the export builder. The stack is deliberately pinned — a specific SDK pairing
+that streams multi‑step tool calls correctly — and the UI is assembled from a shadcn/AI‑Elements kit
+rather than hand‑rolled.
 
-Honest limits are part of the product: bot walls, hydration fights that wipe a patch (`op-wiped`),
-and failed detection are **surfaced, not papered over**.
+**Built in the open, by a team of agents.** This repository was implemented milestone by milestone by
+a small orchestration of AI agents working from three checked‑in contracts — a product spec, a
+technical spec, and an operating manual with an append‑only log of hard‑won lessons. An orchestrator
+delegated one issue per milestone to an implementer; an independent reviewer then tried to *refute*
+every pull request — in a real browser, not just against the tests — before anything merged. Nothing
+merged red, and nothing merged without evidence mapped to its acceptance criteria. That adversarial
+step repeatedly paid for itself: it's what caught the image fix that looked right but didn't render,
+and a resize handle that silently died the moment the cursor crossed onto the preview. The git
+history and the pull requests are the build log.
 
 ---
 
-## Architecture
+## What's considered but not yet built
 
-| Layer | What it does | Key files |
-|---|---|---|
-| **Ingest proxy** | Fetch + rewrite + inject runtime; SSRF guard; same-origin serve | `app/api/ingest/route.ts` |
-| **Iframe runtime** | Runs *inside* the proxied page; applies/reverts ops; measures regressions; **dependency-free** (must survive any third-party page) | `lib/runtime.ts` |
-| **Key proxy** | Byte-level pass-through to Anthropic; the API key never reaches the browser | `app/api/anthropic/[...p]/route.ts` |
-| **Agent loop** | Browser-side `streamText` loop: tool belt, streamed reasoning, prompt caching, per-turn telemetry | `lib/agent.ts`, `lib/tools.ts`, `lib/prompts.ts` |
-| **Extraction** | Deterministic schema ladder + computed facts + ADA audit | `lib/runtime.ts` (extract), `lib/profiles.ts` |
-| **Brief / Plan** | Grounded structured generation; app-side path validation | `lib/brief.ts` |
-| **Variants + COM** | `create_variant`/`score_variant`, tabs, gallery, warn-only regression checks | `lib/variants.ts`, `lib/com.ts`, `lib/tools.ts` |
-| **Export** | Dependency-free multi-arm applier snippet | `lib/export.ts` |
-| **Site memory** | `.memory/<hostname>/` — brief/variants/verdicts persisted; resume-on-reopen | `app/api/memory/route.ts` |
-| **Password gate** | Shared-password auth on every API route before public deploy | `lib/auth.ts`, `app/api/auth/route.ts` |
+Scoped, understood, and deliberately left for later:
 
-**Engineering decisions worth calling out:**
-
-- **Generator ≠ evaluator.** `lib/com.ts` (the scorer) imports *nothing* from the agent or the
-  stores — it can't see how a variant was made, only what it is. The generator proposes; an
-  independent model judges. (Enforced as a hard rule + verified in review.)
-- **The runtime is dependency-free by contract.** It executes inside pages we don't control, so it
-  uses only plain DOM/CSSOM — no bundler globals, no host assumptions.
-- **Tools never throw across the postMessage boundary.** Every tool returns JSON/strings; a
-  30s-timeout or "iframe not ready" becomes `{error}`, never a wedged UI. Every message carries a
-  `requestId`.
-- **Prompt-injection defense.** Page-derived text is wrapped in `<<<PAGE … PAGE>>>` markers in
-  *both* the system prompt and every page-bearing tool result; the agent is trained to treat it as
-  data, and a fixture test proves it refuses embedded instructions.
-- **Everything is a runnable pass.** Each milestone's acceptance criteria are encoded as Playwright
-  specs (`@m1…@m5`, `@ai` where a live model is needed, `@smoke` keyless). CI records a
-  screenshot + video for every test; a `harness-lint` gate fails any code PR that ships no specs.
+- **Per‑site memory** — a file‑backed, agent‑curated memory per hostname, so reopening a URL resumes
+  the whole project (brief, variants, verdicts) and the agent greets you with what it already knows.
+- **Autonomous serving loop** — dynamic variant serving with a generate‑test‑learn cycle, the
+  north‑star version of the product.
+- **Bandit simulation** — a Thompson‑sampling loop over synthetic traffic, seeded by the conversion
+  model's prior.
+- **Structural edits** — adding, removing, duplicating, and cloning‑and‑filling whole sections, not
+  just editing existing copy.
+- **A verify loop** — post‑apply QA checks with self‑correction retries and proof artifacts.
+- **Breadth** — tuning the extraction ladder against more sites beyond the primary target, plus an
+  evals suite for extraction and scoring.
+- A short list of tracked robustness refinements from the reviews.
 
 ---
 
-## Status
-
-Built milestone-by-milestone, each behind CI + an adversarial pre-merge review:
-
-| Milestone | What | State |
-|---|---|---|
-| M1a | Shell · ingest proxy · iframe runtime · op pipeline | ✅ merged |
-| M1b | Agent tick: loop, streamed reasoning, diff ProposalCard | ✅ merged |
-| M2a | Deep extraction: full ladder, node facts, ADA audit | ✅ merged |
-| M2b | Page Brief · Experiment Plan · settings · project context | ✅ merged |
-| M3 | Variants: `create_variant`, tabs, gallery, COM scoring, warnings | ✅ merged |
-| Gate | Password gate on every API route (public-deploy readiness) | 🟢 in review |
-| M5 | Export: deployable A/B `<script>` (**MVP closes here**) | 🔨 in progress |
-| M4 | Site memory: `.memory/<hostname>/`, resume-on-reopen | ⏭ next |
-| Gate run | Full-arc E2E + failure/injection laps + reference video | ⏭ final |
-
----
-
-## Run it locally
+## Running it
 
 ```bash
 pnpm install
-echo "ANTHROPIC_API_KEY=sk-ant-..." > .env.local   # read only in app/api/** — never bundled
+echo "ANTHROPIC_API_KEY=sk-ant-..." > .env.local   # read only on the server, never bundled
 pnpm dev                                            # http://localhost:3010
 ```
 
-Try `https://maxtechera.dev`, then: read the brief → "three different hero angles" → approve a
-proposal → switch variant tabs → export the snippet. See **[DEMO.md](DEMO.md)** for the guided
-walkthrough.
+Analyze `https://maxtechera.dev` (the primary tuning target) and walk the arc: read the brief, ask
+for "three different hero angles," approve one, flip through the carousel, export the snippet.
 
-*(Deployed builds sit behind a shared password — set `APP_PASSWORD` in the host env; unset locally
-= no gate.)*
+Deploying publicly requires `APP_PASSWORD` in the host environment — unset locally, the gate is off
+and nothing changes for development. The live deployment additionally needs `ANTHROPIC_API_KEY` set
+on the host for the agent to run.
 
----
-
-## Built in the open, by a team of agents
-
-This repo is built by AI agents working from three contracts, with humans approving every merge:
-
-- **[PRD.md](PRD.md)** — what & why: the flow, milestones, and each milestone's runnable pass.
-- **[TECH-SPEC.md](TECH-SPEC.md)** — how: pinned versions, code contracts, prompts, protocols.
-- **[CLAUDE.md](CLAUDE.md)** — the agent team's operating manual + append-only learnings.
-
-An orchestrator delegates one issue per milestone to a worker, an independent reviewer tries to
-*refute* every PR before merge (generator ≠ evaluator, applied to the code too), and nothing merges
-red or without evidence mapped to its acceptance criteria. The git history and PRs *are* the
-build log.
+The three contracts that drove the build live alongside this file: **[PRD.md](PRD.md)** (what and
+why), **[TECH-SPEC.md](TECH-SPEC.md)** (how — pinned versions, interfaces, prompts, protocols), and
+**[CLAUDE.md](CLAUDE.md)** (the operating manual and lessons log). A guided walkthrough for a live
+demo is in **[DEMO.md](DEMO.md)**.

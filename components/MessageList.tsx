@@ -12,6 +12,7 @@
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
 import { BriefArtifact } from "@/components/BriefArtifact";
 import { ExperimentPlanBlock } from "@/components/ExperimentPlan";
+import { ExportBlock } from "@/components/Export";
 import { ProposalCard } from "@/components/ProposalCard";
 import { ReasoningBlock } from "@/components/ReasoningBlock";
 import { ToolCallRow } from "@/components/ToolCallRow";
@@ -53,6 +54,8 @@ export function MessageList({
             return <ExperimentPlanBlock key={block.id} />;
           case "gallery":
             return <VariantGalleryBlock key={block.id} send={send} />;
+          case "export":
+            return <ExportBlock key={block.id} />;
           case "error":
             return (
               <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-destructive text-sm" data-testid="agent-error" key={block.id}>

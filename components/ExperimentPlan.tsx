@@ -26,8 +26,11 @@ export function ExperimentPlanBlock() {
 
   const handleBuildArms = (exp: (typeof experiments)[number]) => {
     if (exp.status === "proposed") setStatus(exp.id, "building");
+    // Exactly 2 (PRD §4.5's "1-2 named variants"; the issue's acceptance pass expects 2) —
+    // spelled out explicitly since nothing else pins the count and a model left to choose
+    // reasonably picks its own (3 angles is a perfectly good answer to an unspecified count).
     setText(
-      `Build arms for experiment ${exp.id} ("${exp.name}", target: ${exp.targetPath}) — hypothesis: ${exp.hypothesis}. Call create_variant with experimentId="${exp.id}" for each arm, targeting ONLY ${exp.targetPath}.`
+      `Build arms for experiment ${exp.id} ("${exp.name}", target: ${exp.targetPath}) — hypothesis: ${exp.hypothesis}. Call create_variant with experimentId="${exp.id}" EXACTLY 2 times (2 arms, no more, no fewer), each followed by its own apply_op, targeting ONLY ${exp.targetPath}.`
     );
   };
 

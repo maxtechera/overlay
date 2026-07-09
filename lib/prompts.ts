@@ -75,12 +75,19 @@ export function buildSystem(): string {
   const contextText = context && context.trim().length > 0 ? context.trim() : "(none set)";
   const briefSection = brief ? `Page Brief (human-approved): ${JSON.stringify(brief)}\n\n` : "";
 
-  return AGENT_SYSTEM_TEMPLATE.replace("{url}", url || "(unknown)")
-    .replace("{context}", contextText)
-    .replace("{briefSection}", briefSection)
-    .replace("{memorySection}", buildMemorySection())
-    .replace("{outline}", outlineText)
-    .replace("{goal}", goal || "none stated — infer a sensible one and say what you chose");
+  // PR #41 review (NIT A): `.replace(pattern, someString)` treats `$&`/`$\``/`$'`/`$1` etc. in
+  // the REPLACEMENT string specially — and every value substituted here is page-launderable
+  // (context is user text but persisted verbatim from disk; memory.md is agent-curated from
+  // page-derived learnings via save_memory; outline previews and the brief are page content).
+  // A `$`-token surviving a round-trip through save_memory would silently corrupt every future
+  // system prompt. Passing a replacer FUNCTION makes the value literal — no special-token
+  // interpretation — regardless of what it contains.
+  return AGENT_SYSTEM_TEMPLATE.replace("{url}", () => url || "(unknown)")
+    .replace("{context}", () => contextText)
+    .replace("{briefSection}", () => briefSection)
+    .replace("{memorySection}", () => buildMemorySection())
+    .replace("{outline}", () => outlineText)
+    .replace("{goal}", () => goal || "none stated — infer a sensible one and say what you chose");
 }
 
 /**

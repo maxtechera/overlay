@@ -38,6 +38,7 @@ import type { SendToIframe } from "@/lib/tools";
 import type { PageNode } from "@/lib/types";
 import { ChatPane } from "@/components/ChatPane";
 import { ContextToolbar } from "@/components/ContextToolbar";
+import { ResumeOpsPanel } from "@/components/ResumeOpsPanel";
 import { SettingsBar } from "@/components/SettingsBar";
 import { VariantTabs } from "@/components/VariantTabs";
 
@@ -255,6 +256,7 @@ export default function Home() {
                   learningsCount: countLearnings(useMemoryStore.getState().content),
                   lastScoreDelta: lastScored?.score?.delta,
                   heroStale: diff.stalePaths.has("hero"),
+                  staleCount: diff.stalePaths.size, // PR #41 review: don't drop non-hero staleness
                 });
                 useMemoryStore.getState().setResumeSummary(summary);
               }
@@ -502,6 +504,9 @@ export default function Home() {
   const heroNodes =
     schema.state === "ready" ? schema.nodes.filter((n) => n.type === "hero") : [];
   const statusStr = statusLabel(ingest, schema);
+  // M4 (#4), PR #41 review (BLOCKER 2): stale paths must be user-visible somewhere, not just a
+  // store field a test hook reads — surfaced here in the deterministic extraction status block.
+  const staleNodePaths = useMemoryStore((s) => s.staleNodePaths);
 
   return (
     <div className="shell">
@@ -633,6 +638,15 @@ export default function Home() {
                       ))}
                     </ul>
                   )}
+                  {/* M4 (#4): resume-time stale diff — "fingerprints that moved or vanished get
+                      flagged... instead of silently trusted" (TECH-SPEC §11). Empty on a fresh
+                      (non-resumed) session. */}
+                  {staleNodePaths.size > 0 && (
+                    <div data-testid="stale-sections-note" style={{ color: "#e07a1f", fontSize: 12, marginTop: 4 }}>
+                      {staleNodePaths.size} section(s) changed since last session:{" "}
+                      <span className="mono">{[...staleNodePaths].join(", ")}</span>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -659,6 +673,10 @@ export default function Home() {
               </div>
             )}
           </div>
+
+          {/* M4 (#4): "from last session" ops + re-apply action (TECH-SPEC §11) — self-hides
+              once nothing is hydrated-from-last-session. */}
+          <ResumeOpsPanel send={send} />
 
           {/* dev/overlay controls */}
           {schema.state === "ready" && heroNodes.length > 0 && (

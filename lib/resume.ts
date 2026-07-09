@@ -10,11 +10,33 @@
  * re-resolve the target by PATH: saved node id -> path (via the saved schema snapshot) -> fresh
  * node id (via the current schema store) — and refuse (never guess) if that path was flagged
  * stale by the resume-time diff (lib/memory.ts's diffSchema).
+ *
+ * `resolveOpTarget` is the shared, PURE piece of that lookup (path + stale-or-not) — used both
+ * by `reapplyOp` here and by components/ResumeOpsPanel.tsx (PR #41 review: the op list needs a
+ * real, user-visible "from last session" + re-apply surface, not just this module's test hook).
  */
 
+import type { PageNode, VariantOp } from "./types";
 import { useMemoryStore, useSchemaStore, useVariantsStore } from "./store";
 import type { SendToIframe } from "./tools";
 import type { Op } from "./types";
+
+export interface OpTargetResolution {
+  path: string | null; // null = the saved node itself can't be resolved at all (treat as unsafe)
+  stale: boolean;
+}
+
+/** Pure: saved node id -> path (via the saved snapshot) -> stale-or-not (via the resume diff). */
+export function resolveOpTarget(
+  vop: VariantOp,
+  savedSchemaNodes: PageNode[],
+  staleNodePaths: Set<string>
+): OpTargetResolution {
+  const savedNode = savedSchemaNodes.find((n) => n.id === vop.op.target);
+  const path = savedNode?.path ?? null;
+  if (!path) return { path: null, stale: true };
+  return { path, stale: staleNodePaths.has(path) };
+}
 
 export interface ReapplyResult {
   applied: boolean;
@@ -27,12 +49,9 @@ export async function reapplyOp(variantId: string, opId: string, send: SendToIfr
   if (!variant || !vop) return { applied: false, reason: "unknown op" };
 
   const memory = useMemoryStore.getState();
-  const savedNode = memory.savedSchemaNodes.find((n) => n.id === vop.op.target);
-  const path = savedNode?.path;
+  const { path, stale } = resolveOpTarget(vop, memory.savedSchemaNodes, memory.staleNodePaths);
   if (!path) return { applied: false, reason: "target no longer resolvable" };
-  if (memory.staleNodePaths.has(path)) {
-    return { applied: false, reason: "stale — this section changed since last session" };
-  }
+  if (stale) return { applied: false, reason: "stale — this section changed since last session" };
 
   const freshEntry = useSchemaStore.getState().outline().find((o) => o.path === path);
   if (!freshEntry) return { applied: false, reason: "target not found on the current page" };

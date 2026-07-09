@@ -111,14 +111,18 @@ export function countLearnings(memoryMd: string): number {
 }
 
 /**
- * "Back on posthog.com — 3 learnings on file, last variant scored +0.12, hero unchanged"
- * (PRD §4.6 / TECH-SPEC §14 signature moment). Pure text builder — lib/agent.ts's
- * runFirstTurn feeds this into the first-turn prompt when useMemoryStore.resumeSummary is set.
+ * "Back on posthog.com — 3 learnings on file, last variant scored +0.12, hero unchanged, 2
+ * other sections changed since last session" (PRD §4.6 / TECH-SPEC §14 signature moment). Pure
+ * text builder — lib/agent.ts's runFirstTurn feeds this into the first-turn prompt when
+ * useMemoryStore.resumeSummary is set. `staleCount` is the TOTAL stale-path count (diffSchema's
+ * `stalePaths.size`, which may include "hero") — advisor review (PR #41) flagged that the
+ * greeting only ever mentioned hero staleness, silently dropping every other stale section.
  */
 export function buildResumeSummary(opts: {
   learningsCount: number;
   lastScoreDelta?: number;
   heroStale: boolean;
+  staleCount: number;
 }): string {
   const parts: string[] = [
     `${opts.learningsCount} learning${opts.learningsCount === 1 ? "" : "s"} on file`,
@@ -128,5 +132,9 @@ export function buildResumeSummary(opts: {
     parts.push(`last variant scored ${sign}${opts.lastScoreDelta.toFixed(2)}`);
   }
   parts.push(opts.heroStale ? "hero changed since last session" : "hero unchanged");
+  const otherStale = opts.staleCount - (opts.heroStale ? 1 : 0);
+  if (otherStale > 0) {
+    parts.push(`${otherStale} other section${otherStale === 1 ? "" : "s"} changed since last session`);
+  }
   return parts.join(", ");
 }

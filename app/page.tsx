@@ -281,6 +281,10 @@ export default function Home() {
 
   const handleDividerPointerDown = useCallback((e: React.PointerEvent) => {
     draggingRef.current = true;
+    // Capture the pointer on the divider so drag events keep reaching us even when the cursor
+    // crosses onto the preview iframe — otherwise cross-document events go to the iframe (not
+    // window) and dragging RIGHT to widen the chat dies once a site is loaded (#32 review).
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     e.preventDefault();
   }, []);
 

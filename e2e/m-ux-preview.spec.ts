@@ -131,24 +131,28 @@ test("3 · clicking a slot box adds a composer chip; the next turn's outgoing re
 
 // ── 4. Resizable panels: dragging the divider changes the split ────────────────────────────
 
-test("4 · dragging the panel divider changes the chat/preview split @ux", async ({ page }) => {
+test("4 · dragging the divider widens the chat even after a site loads (pointer crosses the iframe) @ux", async ({ page }) => {
   await page.goto("/");
+  // Load a site so the preview iframe is present — the "widen the chat" drag must survive the
+  // pointer crossing onto the iframe (that's the real scenario; #32 review caught it dying there).
+  await page.getByTestId("url-input").fill("https://maxtechera.dev");
+  await page.getByRole("button", { name: /analyze/i }).click();
+  await expect(page.getByTestId("schema-msg").or(page.getByTestId("no-hero-msg"))).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("preview-iframe")).toBeVisible();
 
   const chat = page.locator(".chat");
   const divider = page.getByTestId("panel-divider");
-  await expect(divider).toBeVisible();
-
   const before = await chat.evaluate((el) => el.getBoundingClientRect().width);
 
   const box = await divider.boundingBox();
   if (!box) throw new Error("panel-divider has no bounding box");
 
+  // Drag RIGHT, deep into the preview iframe's area — pointer capture keeps the moves flowing.
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
-  await page.mouse.move(box.x + 160, box.y + box.height / 2, { steps: 10 });
+  await page.mouse.move(box.x + 250, box.y + box.height / 2, { steps: 12 });
   await page.mouse.up();
 
   const after = await chat.evaluate((el) => el.getBoundingClientRect().width);
-  expect(after, `chat width should change on drag (before=${before}, after=${after})`).not.toBe(before);
-  expect(after).toBeGreaterThan(before);
+  expect(after, `chat should widen dragging right over the iframe (before=${before}, after=${after})`).toBeGreaterThan(before);
 });

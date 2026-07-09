@@ -30,7 +30,19 @@ export type RuntimeMsg =
   | { t: "op-wiped"; opId: string }
   | { t: "op-reverted"; opId: string; requestId?: string }
   | { t: "selected"; nodeId: string }
-  | { t: "overlay-ack"; on: boolean; requestId?: string };
+  | { t: "overlay-ack"; on: boolean; requestId?: string }
+  // A slot-level overlay box click (issue #32). Unsolicited (no parent request preceded it) but
+  // still carries a self-generated requestId per the "every postMessage carries a requestId"
+  // rule — lib/runtime.ts mints one with its own tiny counter, same pattern as this file's
+  // nanoid-lite (runtime.ts must stay dependency-free, so it can't import this module's helper).
+  | {
+      t: "overlay-select";
+      nodeId: string;
+      slot: string;
+      text: string;
+      rect: { x: number; y: number; w: number; h: number };
+      requestId: string;
+    };
 
 // ── nanoid-lite (no import; runtime must be dependency-free, host can be tiny) ──
 let _id = 0;

@@ -60,8 +60,14 @@ export default function Home() {
   const [urlInput, setUrlInput] = useState("");
   const [ingest, setIngest] = useState<IngestStatus>({ state: "idle" });
   const [schema, setSchema] = useState<SchemaStatus>({ state: "idle" });
-  const [overlayOn, setOverlayOn] = useState(false);
+  // Issue #32: overlay defaults ON — boxes appear as soon as extraction settles, no click
+  // required. Kept a Hide toggle (handleOverlayToggle) for a user who wants a clean preview.
+  const [overlayOn, setOverlayOn] = useState(true);
   const [iframeReady, setIframeReady] = useState(false);
+  // Issue #32: resizable chat/preview split. Draggable divider (handleDividerPointerDown below)
+  // updates this width; .preview-frame is flex:1 so it fills whatever's left (globals.css).
+  const [chatWidth, setChatWidth] = useState(420);
+  const draggingRef = useRef(false);
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const hostRef = useRef<IframeHost | null>(null);
@@ -150,6 +156,16 @@ export default function Home() {
                   ? { state: "ready", nodes: res.nodes, a11yAudit: res.a11yAudit }
                   : { state: "none" }
               );
+
+              // Issue #32: overlay on by default, no click required — auto-send once extraction
+              // has settled (mirrors the manual handleOverlayToggle send, just triggered here
+              // instead of by a button click). setOverlayOn keeps the Hide/Show toggle in sync.
+              if (res.nodes.length > 0) {
+                setOverlayOn(true);
+                host
+                  .sendToIframe({ t: "overlay", on: true })
+                  .catch((e) => console.error("[overlay] auto overlay-on failed", e));
+              }
               // Test/debug hooks (same pattern as __overlayApplyMs / __overlayHost) — the
               // full extracted schema + ADA rollup, for e2e specs and devtools spot-checks.
               // Harmless in production; nothing reads these globals. Named __overlaySchema
@@ -180,6 +196,22 @@ export default function Home() {
         // removable reference chip in the composer; sending prepends "[re: <path>]".
         const node = useSchemaStore.getState().node(msg.nodeId);
         if (node) useComposerStore.getState().setReferenceChip({ nodeId: node.id, path: node.path });
+      }
+
+      if (msg.t === "overlay-select") {
+        // Issue #32: a slot-level overlay box click. Same composer-chip flow as "selected"
+        // above, extended with slot + preview so the chip reads "selected: <slot> — <preview>"
+        // and the next turn carries the slot's text as fenced context (ChatPane's
+        // buildReferenceNote).
+        const node = useSchemaStore.getState().node(msg.nodeId);
+        if (node) {
+          useComposerStore.getState().setReferenceChip({
+            nodeId: node.id,
+            path: node.path,
+            slot: msg.slot,
+            preview: msg.text,
+          });
+        }
       }
 
       if (msg.t === "op-wiped") {
@@ -241,6 +273,34 @@ export default function Home() {
     [urlInput]
   );
 
+  // ── resizable panels (issue #32) ────────────────────────────────────────────
+  // Plain pointer-drag: no new dependency (CLAUDE.md — PRD §6 pins the dependency list).
+  // Bounds keep both panes usable at extreme widths.
+  const MIN_CHAT_WIDTH = 280;
+  const MAX_CHAT_WIDTH = 900;
+
+  const handleDividerPointerDown = useCallback((e: React.PointerEvent) => {
+    draggingRef.current = true;
+    e.preventDefault();
+  }, []);
+
+  useEffect(() => {
+    function onMove(e: PointerEvent) {
+      if (!draggingRef.current) return;
+      const next = Math.min(MAX_CHAT_WIDTH, Math.max(MIN_CHAT_WIDTH, e.clientX));
+      setChatWidth(next);
+    }
+    function onUp() {
+      draggingRef.current = false;
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, []);
+
   // ── overlay toggle ──────────────────────────────────────────────────────────
   const handleOverlayToggle = useCallback(async () => {
     const host = hostRef.current;
@@ -294,7 +354,7 @@ export default function Home() {
       {/* main: chat + preview */}
       <div className="main">
         {/* chat pane */}
-        <div className="chat">
+        <div className="chat" style={{ width: chatWidth }}>
           <div className="chat-head">
             <span className="title">Chat</span>
             <span className="sub">agent loop · reasoning · proposals</span>
@@ -431,6 +491,17 @@ export default function Home() {
           {/* real agent transcript + composer */}
           <ChatPane disabled={!iframeReady} send={send} />
         </div>
+
+        {/* draggable divider (issue #32) — pointer-drag updates chatWidth; preview-frame is
+            flex:1 so it absorbs whatever's left */}
+        <div
+          className="panel-divider"
+          data-testid="panel-divider"
+          onPointerDown={handleDividerPointerDown}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize chat and preview panels"
+        />
 
         {/* preview pane */}
         <div className="preview-frame">

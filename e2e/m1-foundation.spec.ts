@@ -64,8 +64,12 @@ test("2 · maxtechera.dev renders visually intact in iframe @m1", async ({ page 
 });
 
 // ── 3. Hero detected with slots ─────────────────────────────────────────────────
+//
+// Issue #32 changed the overlay default from off (click "Show overlay") to ON — boxes appear
+// as soon as extraction settles, no click required; a "Hide overlay" toggle stays available.
+// This spec now asserts the new default-on behavior AND that the toggle still works both ways.
 
-test("3 · hero node returned with headline slot and overlay box @m1", async ({ page }) => {
+test("3 · hero node returned with headline slot; overlay box appears with NO click, toggle still works @m1", async ({ page }) => {
   await page.goto("/");
 
   await page.getByTestId("url-input").fill("https://maxtechera.dev");
@@ -82,21 +86,27 @@ test("3 · hero node returned with headline slot and overlay box @m1", async ({ 
   // Op controls appear (requires hero detected)
   await expect(page.getByTestId("op-controls")).toBeVisible({ timeout: 5_000 });
 
-  // Enable overlay and check a box appears inside the iframe
-  await page.getByTestId("overlay-btn").click();
+  const overlayBoxCount = () =>
+    page.getByTestId("preview-iframe").evaluate((el: HTMLIFrameElement) => {
+      const doc = el.contentDocument;
+      if (!doc) return 0;
+      // Look for the orange overlay container: zIndex 2147483646 (lib/runtime.ts's drawOverlay)
+      return doc.querySelectorAll("div[style*='2147483646']").length;
+    });
 
-  // Give the overlay a moment to render inside the iframe
-  await page.waitForTimeout(1000);
+  // (issue #32, item 1) boxes are present with NO click — give the auto-sent overlay message a
+  // moment to land, then check, never having touched the toggle.
+  await expect.poll(overlayBoxCount, { timeout: 5_000 }).toBeGreaterThan(0);
 
-  // The overlay box should be present in the iframe DOM
-  const overlayExists = await page.getByTestId("preview-iframe").evaluate((el: HTMLIFrameElement) => {
-    const doc = el.contentDocument;
-    if (!doc) return false;
-    // Look for the orange overlay box: border 2px solid #f97316
-    const boxes = doc.querySelectorAll("div[style*='2147483646']");
-    return boxes.length > 0;
-  });
-  expect(overlayExists).toBe(true);
+  // The toggle still works: it now reads "Hide overlay" (overlay defaults on) — clicking it
+  // clears the boxes, clicking again brings them back.
+  const overlayBtn = page.getByTestId("overlay-btn");
+  await expect(overlayBtn).toHaveText(/hide overlay/i);
+  await overlayBtn.click();
+  await expect.poll(overlayBoxCount, { timeout: 5_000 }).toBe(0);
+
+  await overlayBtn.click();
+  await expect.poll(overlayBoxCount, { timeout: 5_000 }).toBeGreaterThan(0);
 });
 
 // ── 4. Apply + revert op pipeline ───────────────────────────────────────────────

@@ -39,6 +39,43 @@ function isPrivateOrLocalhost(hostname: string): boolean {
   return false;
 }
 
+/**
+ * Absolutize a root-relative URL (`/foo`) against `origin`. Leaves protocol-relative
+ * (`//host/...`), absolute (`http(s)://...`), and `data:`/`blob:` URLs untouched.
+ */
+function absolutizeUrl(value: string, origin: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return value;
+  if (trimmed.startsWith("//")) return value; // protocol-relative — already has a host
+  if (!trimmed.startsWith("/")) return value; // absolute, data:, blob:, mailto:, #hash, relative
+  return origin + trimmed;
+}
+
+/**
+ * Absolutize each URL in a `srcset` attribute (comma-separated `url [descriptor]` pairs),
+ * preserving descriptors (e.g. ` 640w`, ` 2x`).
+ */
+function absolutizeSrcset(value: string, origin: string): string {
+  return value
+    .split(",")
+    .map((candidate) => {
+      const part = candidate.trim();
+      if (!part) return part;
+      const spaceIdx = part.indexOf(" ");
+      const url = spaceIdx === -1 ? part : part.slice(0, spaceIdx);
+      const descriptor = spaceIdx === -1 ? "" : part.slice(spaceIdx); // includes leading space
+      return absolutizeUrl(url, origin) + descriptor;
+    })
+    .join(", ");
+}
+
+/** Absolutize `url(/path)` references inside an inline `style` attribute's background-image etc. */
+function absolutizeInlineStyleUrls(value: string, origin: string): string {
+  return value.replace(/url\((['"]?)(\/[^'")]*)\1\)/gi, (_match, quote: string, path: string) => {
+    return `url(${quote}${absolutizeUrl(path, origin)}${quote})`;
+  });
+}
+
 function err422(reason: string) {
   return new Response(JSON.stringify({ reason }), {
     status: 422,
@@ -155,6 +192,43 @@ export async function GET(req: Request) {
       s.remove();
     }
   });
+
+  // Absolutize root-relative asset URLs to the target origin. Next.js (and other) targets emit
+  // root-relative optimizer URLs (`/_next/image?url=...`); once served same-origin from OUR host,
+  // the site's own runtime re-resolves these against our origin on hydration — `<base href>`
+  // alone doesn't survive that. See issue #29.
+  const targetOrigin = (() => {
+    try {
+      return new URL(finalUrl).origin;
+    } catch {
+      return "";
+    }
+  })();
+
+  if (targetOrigin) {
+    root.querySelectorAll("img").forEach((img) => {
+      const src = img.getAttribute("src");
+      if (src) img.setAttribute("src", absolutizeUrl(src, targetOrigin));
+      const srcset = img.getAttribute("srcset");
+      if (srcset) img.setAttribute("srcset", absolutizeSrcset(srcset, targetOrigin));
+    });
+    root.querySelectorAll("source").forEach((source) => {
+      const src = source.getAttribute("src");
+      if (src) source.setAttribute("src", absolutizeUrl(src, targetOrigin));
+      const srcset = source.getAttribute("srcset");
+      if (srcset) source.setAttribute("srcset", absolutizeSrcset(srcset, targetOrigin));
+    });
+    root.querySelectorAll("link[href]").forEach((link) => {
+      const href = link.getAttribute("href");
+      if (href) link.setAttribute("href", absolutizeUrl(href, targetOrigin));
+    });
+    root.querySelectorAll("[style]").forEach((el) => {
+      const style = el.getAttribute("style");
+      if (style && style.includes("url(")) {
+        el.setAttribute("style", absolutizeInlineStyleUrls(style, targetOrigin));
+      }
+    });
+  }
 
   // Inject <base href="finalUrl"> as FIRST child of <head>
   const head = root.querySelector("head");

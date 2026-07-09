@@ -81,6 +81,83 @@ function post(msg: Record<string, unknown>): void {
   window.parent.postMessage(msg, "*");
 }
 
+// ── image src/srcset hydration guard (issue #29) ───────────────────────────────
+// Some targets' own client runtime (e.g. Next.js's image optimizer) RE-RESOLVES img/source
+// src/srcset back to root-relative (`/_next/image?...`) on hydration — this undoes BOTH the
+// injected <base href> and /api/ingest's ingest-time absolutization (route.ts), because it
+// happens client-side, after the page is already served. Root-relative on OUR host (the page
+// is served same-origin, see route.ts) means the browser fetches `<our-origin>/_next/image?...`,
+// which 404s/soft-fails since that route only exists on the target. This IIFE runs INSIDE the
+// page, as early as possible (module top-level, before the click interceptor below), and stays
+// live for the page's whole lifetime via a MutationObserver — re-absolutizing any root-relative
+// src/srcset the instant hydration (or any later re-render) sets one. Dependency-free: plain DOM
+// + MutationObserver only, no imports (lib/runtime.ts must stay import-free of npm packages).
+(function guardImageUrls(): void {
+  const targetHost = (window as unknown as { __overlayTargetHost?: string }).__overlayTargetHost;
+  if (!targetHost) return; // runtime-fixture test harness with no injected host — nothing to guard
+  const origin = `https://${targetHost}`;
+
+  function isRootRelative(v: string | null | undefined): v is string {
+    return !!v && v.startsWith("/") && !v.startsWith("//");
+  }
+
+  function absolutizeSrcsetValue(v: string): string {
+    return v
+      .split(",")
+      .map((candidate) => {
+        const part = candidate.trim();
+        if (!part) return part;
+        const spaceIdx = part.indexOf(" ");
+        const url = spaceIdx === -1 ? part : part.slice(0, spaceIdx);
+        const descriptor = spaceIdx === -1 ? "" : part.slice(spaceIdx); // includes leading space
+        return (isRootRelative(url) ? origin + url : url) + descriptor;
+      })
+      .join(", ");
+  }
+
+  function fixEl(el: Element): void {
+    if (!(el instanceof HTMLImageElement) && !(el instanceof HTMLSourceElement)) return;
+    const src = el.getAttribute("src");
+    if (isRootRelative(src)) el.setAttribute("src", origin + src);
+
+    const srcset = el.getAttribute("srcset");
+    if (srcset) {
+      const anyRootRelative = srcset
+        .split(",")
+        .some((c) => isRootRelative(c.trim().split(" ")[0]));
+      if (anyRootRelative) el.setAttribute("srcset", absolutizeSrcsetValue(srcset));
+    }
+  }
+
+  function scanSubtree(node: Node): void {
+    if (node instanceof HTMLImageElement || node instanceof HTMLSourceElement) fixEl(node);
+    if (node instanceof Element) {
+      node.querySelectorAll("img, source").forEach(fixEl);
+    }
+  }
+
+  // Initial sweep — belt+suspenders alongside /api/ingest's ingest-time absolutization; catches
+  // anything already in the DOM before the observer below is wired up.
+  scanSubtree(document.documentElement);
+
+  const observer = new MutationObserver((mutations) => {
+    for (const m of mutations) {
+      if (m.type === "attributes" && m.target instanceof Element) {
+        fixEl(m.target);
+      } else if (m.type === "childList") {
+        m.addedNodes.forEach(scanSubtree);
+      }
+    }
+  });
+
+  observer.observe(document.documentElement, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ["src", "srcset"],
+  });
+})();
+
 // ── click interceptor: prevent any <a> from navigating the preview away ──
 document.addEventListener(
   "click",

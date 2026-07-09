@@ -54,6 +54,10 @@ async function waitForTurnSettled(page: Page) {
 test("1 · Brief renders grounded — ctaAudit paths trace to real components, 2-3 segments each with a detectable signal, ADA rollup is the deterministic one @m2 @ai", async ({
   page,
 }) => {
+  // Brief (streamObject) + Plan (generateObject, with a possible <6-survivors retry) are two
+  // sequential live Haiku calls after extraction — legitimately exceeds the default 60s test
+  // budget (waitForPlanSettled alone allows 90s). Match tests 3/4's allowance.
+  test.setTimeout(150_000);
   await submitAndWaitForExtraction(page);
   await waitForPlanSettled(page);
 
@@ -87,7 +91,9 @@ test("1 · Brief renders grounded — ctaAudit paths trace to real components, 2
   expect(b.valueProp.length).toBeGreaterThan(10);
 
   // ctaAudit is LLM-composed but must reference REAL extracted paths — a hallucinated CTA
-  // (a path not in the outline) would be an invented claim.
+  // (a path not in the outline) would be an invented claim. Non-empty so this isn't a vacuous
+  // pass: maxtechera.dev has CTAs, and zero survivors would signal an app-side grounding regression.
+  expect(b.ctaAudit.length, "brief must surface at least one grounded CTA").toBeGreaterThan(0);
   for (const cta of b.ctaAudit) {
     expect(outline, `ctaAudit path "${cta.path}" must trace to a real extracted component`).toContain(cta.path);
   }
@@ -116,6 +122,7 @@ test("1 · Brief renders grounded — ctaAudit paths trace to real components, 2
 test("2 · Experiment Plan renders ≥6 proposals, EVERY targetPath is a real schema path (app-side validation), hypotheses are non-trivial @m2 @ai", async ({
   page,
 }) => {
+  test.setTimeout(150_000); // two sequential live Haiku calls (brief → plan) after extraction
   await submitAndWaitForExtraction(page);
   await waitForPlanSettled(page);
 

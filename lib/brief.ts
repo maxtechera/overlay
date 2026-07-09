@@ -91,8 +91,10 @@ export async function runBriefAndPlan(): Promise<void> {
     const groundedCtaAudit = finalObj.ctaAudit
       .map((c) => {
         if (validPaths.has(c.path)) return c;
-        const nodePath = c.path.slice(0, c.path.lastIndexOf("."));
-        return nodePath && validPaths.has(nodePath) ? { ...c, path: nodePath } : null;
+        const dot = c.path.lastIndexOf(".");
+        if (dot < 0) return null; // no slot suffix to strip → not a real node path → invented, drop it
+        const nodePath = c.path.slice(0, dot);
+        return validPaths.has(nodePath) ? { ...c, path: nodePath } : null;
       })
       .filter((c): c is NonNullable<typeof c> => c !== null);
     const finalBrief: PageBrief = { ...finalObj, ctaAudit: groundedCtaAudit, a11yAudit: schema.a11yAudit };
@@ -105,6 +107,11 @@ export async function runBriefAndPlan(): Promise<void> {
 
     await runPlan(finalBrief);
   } catch (e) {
+    // A mid-stream failure leaves the last streamed partial in the store; its ctaAudit was
+    // never app-side grounded, so strip it before it can enter any future turn's system prompt
+    // as "human-approved" brief content (no invented paths leak on the failure path either).
+    const partial = useSessionStore.getState().brief;
+    if (partial) useSessionStore.getState().setBrief({ ...partial, ctaAudit: [] });
     useChatStore.getState().pushError(`brief generation failed: ${e instanceof Error ? e.message : String(e)}`);
   }
 }

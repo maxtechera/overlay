@@ -291,6 +291,15 @@ export function buildApplierSource(spec: ExportSpec, opts?: BuildApplierOpts): s
 
   function run() {
     var bucket = pickBucket();
+    // #overlay-force-variant (TECH-SPEC §12, the console/preview path): force the first
+    // non-control arm even when the <script> tag is already deployed — never persisted.
+    try {
+      if (location.hash === "#overlay-force-variant") {
+        for (var f = 0; f < ARMS.length; f++) {
+          if (ARMS[f].id !== "control") { bucket = ARMS[f].id; break; }
+        }
+      }
+    } catch (e) {}
     window.__overlayVariant = bucket;
     document.documentElement.setAttribute("data-overlay-variant", bucket);
     var arm = armById(bucket);

@@ -197,6 +197,35 @@ test("2b · single-variant export = degenerate 2-arm case, ~50/50 over 60 fresh 
 
 // ── 3 (keyless) · <script> tag: fresh visitors bucket, assignment persists, reads correctly ─
 
+// ── 2c (keyless) · #overlay-force-variant preview override on a DEPLOYED (unforced) script ───
+
+test("2c · #overlay-force-variant forces the variant on an already-deployed script, without persisting @m5", async ({ browser }) => {
+  // The console/preview path (TECH-SPEC §12): the <script> is deployed unforced, but adding the
+  // hash previews the variant. Must apply the variant AND not write the forced value to storage.
+  const KEY = "overlay-ab-hashforce-test";
+  const spec = specForVariant([headlineOp("Hash-forced variant headline")], KEY);
+  const source = buildApplierSource(spec); // unforced — exactly the deployed <script> case
+
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.addInitScript({ content: source });
+  await page.goto(`${FIXTURE_URL}#overlay-force-variant`);
+
+  expect(await page.evaluate(() => (window as unknown as { __overlayVariant?: string }).__overlayVariant)).toBe("variant");
+  expect(await currentHeadline(page), "the hash previews the variant even when deployed unforced").toBe(
+    "Hash-forced variant headline"
+  );
+
+  // The forced value is transient: reload WITHOUT the hash → the assignment reverts to whatever
+  // pickBucket independently persisted (never the hash-forced value written over it).
+  const stored = await page.evaluate((k) => localStorage.getItem(k), KEY);
+  await page.goto(FIXTURE_URL);
+  const afterReload = await page.evaluate(() => (window as unknown as { __overlayVariant?: string }).__overlayVariant);
+  expect(afterReload, "hash override is not persisted").toBe(stored);
+
+  await context.close();
+});
+
 test("3 · as a <script> tag pasted in <head>: fresh visitors bucket, assignment persists across reload, window/data-attribute read correctly @m5", async ({ browser }) => {
   const spec = specForVariant([headlineOp("Script-tag variant headline")], "overlay-ab-scripttag-test");
   const source = buildApplierSource(spec);

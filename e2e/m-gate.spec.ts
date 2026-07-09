@@ -9,7 +9,7 @@ import { test, expect, request as pwRequest, type APIRequestContext } from "@pla
 import { spawn, type ChildProcess } from "child_process";
 import { join } from "path";
 
-const GATE_PORT = 3011;
+const GATE_PORT = Number(process.env.GATE_PORT ?? 3099);
 const GATE_URL = `http://localhost:${GATE_PORT}`;
 const PASSWORD = "testpw-gate-42";
 
@@ -105,11 +105,11 @@ test("gate on · the password never appears in the served HTML or bundle @smoke"
 
 // ── Gate OFF (default server, APP_PASSWORD unset) ────────────────────────────────
 
-test("gate off · everything works with no cookie (local dev unchanged) @smoke", async () => {
-  const ctx = await pwRequest.newContext({ baseURL: "http://localhost:3010" });
-  const status = await ctx.get(`/api/auth`);
+test("gate off · everything works with no cookie (local dev unchanged) @smoke", async ({ request }) => {
+  // The default webServer runs WITHOUT APP_PASSWORD — use the config-bound `request` fixture so
+  // this is port-agnostic (works in CI on 3010 and any isolated local port).
+  const status = await request.get(`/api/auth`);
   expect(await status.json()).toEqual({ gateEnabled: false, authed: true });
-  const ingest = await ctx.get(`/api/ingest?url=${encodeURIComponent("https://example.com")}`);
+  const ingest = await request.get(`/api/ingest?url=${encodeURIComponent("https://example.com")}`);
   expect(ingest.status(), "gate off → ingest not blocked").not.toBe(401);
-  await ctx.dispose();
 });

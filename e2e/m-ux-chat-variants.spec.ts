@@ -84,6 +84,9 @@ test("2 · consecutive tool/reasoning blocks coalesce into ONE collapsed 'workin
   await page.getByTestId("working-group-toggle").click();
   await expect(page.getByTestId("tool-row")).toHaveCount(2);
   await expect(page.getByTestId("reasoning-block")).toHaveCount(1);
+  // ReasoningBlock has its OWN nested collapsible (collapsed by default, unrelated to the
+  // working-group wrapper) — expand it too before checking the actual reasoning text.
+  await page.getByTestId("reasoning-block").locator('[data-slot="collapsible-trigger"]').click();
   await expect(page.getByTestId("reasoning-block")).toContainText("conviction angle");
 
   // Collapsing again hides them again — a real toggle, not a one-way reveal.

@@ -288,6 +288,9 @@ test("6 · preview click → composer reference chip; ComponentCard click → pr
     chat.closeTool("e2e-read-component", node);
   }, realNodeId);
 
+  // Issue #28 (quieter transcript): this tool block renders inside a collapsed "working…"
+  // group by default — expand it before looking for the ComponentCard it contains.
+  await page.getByTestId("working-group-toggle").last().click();
   await expect(page.getByTestId("component-card")).toBeVisible({ timeout: 5_000 });
 
   // Scroll the iframe far away first so a subsequent scrollIntoView is observable.

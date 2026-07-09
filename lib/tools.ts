@@ -123,14 +123,15 @@ export const makeTools = (deps: Deps) => ({
     },
   }),
 
-  // Issue #28 (item 3): create_variant below enforces a hard cap of 4 arms per experiment (or
-  // 4 ad-hoc variants when no experimentId is given) — a demo-polish guard against unbounded
-  // variant sessions. App-side, independent of whatever the prompt steers toward (lib/prompts.ts
-  // also asks for fewer/smaller variants, but this is the enforcement backstop). Ignoring the
-  // 5th call is a normal tool result, never a throw.
+  // Issue #28 (item 3), raised 4→5 by issue #35 (item 1): create_variant below enforces a hard
+  // cap of 5 arms per experiment (or 5 ad-hoc variants when no experimentId is given) — a
+  // demo-polish guard against unbounded variant sessions, and the carousel's "5 per module"
+  // ceiling (components/VariantGallery.tsx). App-side, independent of whatever the prompt steers
+  // toward (lib/prompts.ts also asks for fewer/smaller variants, but this is the enforcement
+  // backstop). Ignoring the 6th call is a normal tool result, never a throw.
   create_variant: tool({
     description:
-      "Save a recommendation as a new named variant and make it active. Use one variant per distinct angle/hypothesis — call this again (with a new name) before starting a different angle. Optionally aim it at a brief segment, or tie it to an Experiment Plan card's id as one of that experiment's arms. Capped at 4 variants per experiment (or 4 ad-hoc variants when no experimentId is given) — a 5th call for the same scope is ignored, not created.",
+      "Save a recommendation as a new named variant and make it active. Use one variant per distinct angle/hypothesis — call this again (with a new name) before starting a different angle. Optionally aim it at a brief segment, or tie it to an Experiment Plan card's id as one of that experiment's arms. Capped at 5 variants per experiment (or 5 ad-hoc variants when no experimentId is given) — a 6th call for the same scope is ignored, not created.",
     inputSchema: z.object({
       name: z.string().max(60),
       goal: z.string().optional(),
@@ -139,8 +140,8 @@ export const makeTools = (deps: Deps) => ({
     }),
     execute: async ({ name, goal, segment, experimentId }) => {
       // Scope = the experiment this arm belongs to, or "ad-hoc" (no experimentId) as its own
-      // group — either way, capped at 4 (issue #28's "≤4 variants" clamp).
-      const MAX_ARMS_PER_SCOPE = 4;
+      // group — either way, capped at 5 (issue #35's "≤5 variants" clamp).
+      const MAX_ARMS_PER_SCOPE = 5;
       const existingInScope = useVariantsStore
         .getState()
         .list.filter((v) => (experimentId ? v.experimentId === experimentId : !v.experimentId)).length;

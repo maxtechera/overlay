@@ -81,6 +81,14 @@ function post(msg: Record<string, unknown>): void {
   window.parent.postMessage(msg, "*");
 }
 
+// ── tiny requestId generator for messages the RUNTIME originates unsolicited (overlay-select) —
+// deliberately NOT imported from lib/protocol.ts's nanoid-lite: runtime.ts stays import-free of
+// every other app module (dependency-free — it runs inside third-party pages, CLAUDE.md). ──
+let _msgCounter = 0;
+function genRequestId(): string {
+  return `rt-${Date.now().toString(36)}-${(++_msgCounter).toString(36)}`;
+}
+
 // ── image src/srcset hydration guard (issue #29) ───────────────────────────────
 // Some targets' own client runtime (e.g. Next.js's image optimizer) RE-RESOLVES img/source
 // src/srcset back to root-relative (`/_next/image?...`) on hydration — this undoes BOTH the
@@ -997,6 +1005,97 @@ function factsSummary(facts: PageNode["facts"]): string {
   return bits.length > 0 ? ` · ${bits.join(" ")}` : "";
 }
 
+/** Short, human-scannable preview of a slot's content for the overlay label + the
+ *  overlay-select payload — text first, then href/src as a fallback so link/media slots still
+ *  get SOME preview. Deliberately short (issue #32: keep the label readable, not cluttered). */
+function slotPreview(slot: PageNode["slots"][string] | undefined): string {
+  if (!slot) return "";
+  if (slot.text) return slot.text.replace(/\s+/g, " ").trim().slice(0, 40);
+  if (slot.href) return slot.href.slice(0, 40);
+  if (slot.src) return "(image)";
+  return "";
+}
+
+/** One clickable box for a single SLOT's backing element (issue #32 — slot-level overlay, not
+ *  one coarse box per node). The visible label is just `slotName — preview`; the dense facts
+ *  (lines/px/contrast/via) that used to clutter every label move to the box's `title` attribute
+ *  (native hover tooltip) instead. Clicking posts `overlay-select` — never throws (module-level
+ *  message handler below owns the try/catch boundary for the rest of the protocol; this handler
+ *  has nothing that can throw: DOM reads + one postMessage). */
+function drawSlotBox(container: HTMLDivElement, node: PageNode, slotName: string, el: Element): void {
+  const rect = rectOf(el);
+  const box = document.createElement("div");
+  Object.assign(box.style, {
+    position: "absolute",
+    left: `${rect.x}px`,
+    top: `${rect.y}px`,
+    width: `${rect.w}px`,
+    height: `${rect.h}px`,
+    border: "1.5px solid #f97316",
+    boxSizing: "border-box",
+    pointerEvents: "auto",
+    cursor: "pointer",
+  });
+  box.title =
+    `${node.path}.${slotName} · ${node.type}` + (node.via ? ` · ${node.via}` : "") + factsSummary(node.facts);
+
+  const label = document.createElement("div");
+  Object.assign(label.style, {
+    position: "absolute",
+    top: "0",
+    left: "0",
+    background: "#f97316",
+    color: "#0a0a0a",
+    fontSize: "10px",
+    fontFamily: "monospace",
+    padding: "1px 5px",
+    lineHeight: "1.4",
+    whiteSpace: "nowrap",
+    pointerEvents: "none",
+  });
+  const preview = slotPreview(node.slots[slotName]);
+  label.textContent = preview ? `${slotName} — ${preview}` : slotName;
+  box.appendChild(label);
+
+  box.addEventListener(
+    "click",
+    (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      post({
+        t: "overlay-select",
+        nodeId: node.id,
+        slot: slotName,
+        text: slotPreview(node.slots[slotName]),
+        rect,
+        requestId: genRequestId(),
+      });
+    },
+    true
+  );
+
+  container.appendChild(box);
+}
+
+/** Fallback coarse box for a node with no registered slots (e.g. a collection whose section has
+ *  no heading of its own — its cards still get their own slot boxes). Not clickable-to-select
+ *  (there's no single slot to select); just the "we found this container" outline. */
+function drawNodeBox(container: HTMLDivElement, node: PageNode): void {
+  const box = document.createElement("div");
+  Object.assign(box.style, {
+    position: "absolute",
+    left: `${node.rect.x}px`,
+    top: `${node.rect.y}px`,
+    width: `${node.rect.w}px`,
+    height: `${node.rect.h}px`,
+    border: "1.5px dashed #f97316",
+    boxSizing: "border-box",
+    pointerEvents: "none",
+  });
+  box.title = `${node.path} · ${node.type}` + (node.via ? ` · ${node.via}` : "");
+  container.appendChild(box);
+}
+
 function drawOverlay(nodes: PageNode[]): void {
   clearOverlay();
   if (!overlayOn || nodes.length === 0) return;
@@ -1014,38 +1113,16 @@ function drawOverlay(nodes: PageNode[]): void {
   document.body.appendChild(overlayContainer);
 
   for (const node of nodes) {
-    const box = document.createElement("div");
-    Object.assign(box.style, {
-      position: "absolute",
-      left: `${node.rect.x}px`,
-      top: `${node.rect.y}px`,
-      width: `${node.rect.w}px`,
-      height: `${node.rect.h}px`,
-      border: "2px solid #f97316",
-      boxSizing: "border-box",
-      pointerEvents: "none",
-    });
-
-    const label = document.createElement("div");
-    Object.assign(label.style, {
-      position: "absolute",
-      top: "0",
-      left: "0",
-      background: "#f97316",
-      color: "#0a0a0a",
-      fontSize: "10px",
-      fontFamily: "monospace",
-      padding: "1px 5px",
-      lineHeight: "1.4",
-      whiteSpace: "nowrap",
-    });
-    // via-tag + facts summary are shown right in the label — the "we understand this page"
-    // proof, debuggable at a glance (PRD §4.2).
-    label.textContent =
-      `${node.path} · ${node.type}` + (node.via ? ` · ${node.via}` : "") + factsSummary(node.facts);
-
-    box.appendChild(label);
-    overlayContainer.appendChild(box);
+    const slotNames = Object.keys(node.slots);
+    if (slotNames.length === 0) {
+      drawNodeBox(overlayContainer, node);
+      continue;
+    }
+    for (const slotName of slotNames) {
+      const el = elementMap.get(`${node.id}.${slotName}`);
+      if (!el) continue; // slot declared but its element wasn't registered — skip, never guess
+      drawSlotBox(overlayContainer, node, slotName, el);
+    }
   }
 }
 

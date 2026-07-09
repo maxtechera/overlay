@@ -108,6 +108,16 @@ input:focus, textarea:focus { border-color: var(--primary); }
 
 .main { display: flex; flex: 1; min-height: 0; }
 
+/* ---------- resizable panel divider (issue #32) ---------- */
+.panel-divider {
+  flex: none;
+  width: 6px;
+  cursor: col-resize;
+  background: var(--border);
+  touch-action: none;
+}
+.panel-divider:hover, .panel-divider:active { background: var(--brand); }
+
 /* ---------- preview ---------- */
 .preview {
   flex: 1;

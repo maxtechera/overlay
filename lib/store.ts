@@ -172,6 +172,11 @@ export const useVariantsStore = create<VariantsState>((set, get) => ({
 export interface ReferenceChip {
   nodeId: string;
   path: string;
+  // Present when the chip came from a slot-level overlay box click (issue #32) rather than a
+  // whole-node preview click (M2b's original "selected" wiring) — lets the composer render a
+  // richer "selected: <slot> — <preview>" chip and carry the slot text as fenced context.
+  slot?: string;
+  preview?: string;
 }
 
 interface ComposerState {

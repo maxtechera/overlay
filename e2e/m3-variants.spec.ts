@@ -84,9 +84,14 @@ test("1 · suggestedAllocation — control fixed at 25%, remaining 75% proportio
   expect(suggestedAllocation([])).toEqual({ control: 1 });
 });
 
-// ── 2 (keyless) · Gallery: grouped by experiment, ranked by delta, allocation COM-prior ──
+// ── 2 (keyless) · Gallery: carousel, grouped-by-experiment header, ranked by delta ───────
+//
+// Issue #28 rebuilt the gallery from a grid into a compact one-at-a-time CAROUSEL — this spec
+// now proves the same underlying facts (experiment grouping/header, delta ranking, COM-prior
+// allocation, no arm hidden) by NAVIGATING the carousel (prev/next + dots) instead of reading
+// every card out of the DOM at once.
 
-test("2 · Gallery renders inline, grouped by experiment, ranked by delta, allocation labeled COM-prior @m3", async ({ page }) => {
+test("2 · Gallery renders as a carousel — experiment header + COM-prior allocation, ranked by delta, prev/next/dots navigate @m3", async ({ page }) => {
   await page.goto("/");
   await page.getByTestId("url-input").fill("https://maxtechera.dev");
   await page.getByRole("button", { name: /analyze/i }).click();
@@ -117,20 +122,31 @@ test("2 · Gallery renders inline, grouped by experiment, ranked by delta, alloc
   await expect(page.getByTestId("gallery-control-allocation")).toContainText("25%");
   await expect(page.getByTestId("gallery-control-allocation")).toContainText("COM-prior");
 
-  // Ranked by delta: the higher-scoring arm renders BEFORE the lower one.
-  const names = await page.getByTestId("variant-name").allInnerTexts();
-  expect(names.indexOf("High scorer")).toBeLessThan(names.indexOf("Low scorer"));
+  // Two arms -> two dots (one carousel, one slide per arm).
+  await expect(page.getByTestId("carousel-dot")).toHaveCount(2);
 
-  // The negative-delta arm still renders honestly (not hidden/clamped away) with its own
-  // allocation share, smaller than the winner's.
-  const cards = page.getByTestId("variant-card");
-  const loCard = cards.filter({ hasText: "Low scorer" });
-  const hiCard = cards.filter({ hasText: "High scorer" });
-  await expect(loCard.getByTestId("variant-delta")).toContainText("-0.10");
-  await expect(hiCard.getByTestId("variant-delta")).toContainText("+0.30");
-  const loAlloc = parseFloat((await loCard.getByTestId("variant-allocation").innerText()).match(/(\d+)%/)![1]);
-  const hiAlloc = parseFloat((await hiCard.getByTestId("variant-allocation").innerText()).match(/(\d+)%/)![1]);
+  // Ranked by delta: the higher-scoring arm shows FIRST (carousel index 0).
+  await expect(page.getByTestId("variant-name")).toHaveText("High scorer");
+  await expect(page.getByTestId("variant-delta")).toContainText("+0.30");
+  const hiAlloc = parseFloat((await page.getByTestId("variant-allocation").innerText()).match(/(\d+)%/)![1]);
+
+  // Next -> the negative-delta arm still renders honestly (not hidden/clamped away), with its
+  // own smaller allocation share.
+  await page.getByTestId("carousel-next").click();
+  await expect(page.getByTestId("variant-name")).toHaveText("Low scorer");
+  await expect(page.getByTestId("variant-delta")).toContainText("-0.10");
+  const loAlloc = parseFloat((await page.getByTestId("variant-allocation").innerText()).match(/(\d+)%/)![1]);
   expect(hiAlloc).toBeGreaterThan(loAlloc);
+  await expect(page.getByTestId("carousel-dot").nth(1)).toHaveAttribute("data-active", "true");
+
+  // Prev -> back to the high scorer.
+  await page.getByTestId("carousel-prev").click();
+  await expect(page.getByTestId("variant-name")).toHaveText("High scorer");
+  await expect(page.getByTestId("carousel-dot").nth(0)).toHaveAttribute("data-active", "true");
+
+  // Dots jump directly too.
+  await page.getByTestId("carousel-dot").nth(1).click();
+  await expect(page.getByTestId("variant-name")).toHaveText("Low scorer");
 });
 
 // ── 3 (keyless) · Thumbnails: success path + fallback path, both pass ────────────────────
@@ -164,7 +180,8 @@ test("3 · captureThumbnail succeeds against a same-origin iframe and returns nu
   expect(nullResult).toBeNull();
 
   // Gallery rendering: WITH a thumbnail -> real <img>; WITHOUT -> the styled fallback card.
-  // Both are asserted on the SAME render so both paths are proven to "pass" (issue criterion 6).
+  // Both are asserted via the carousel's two slides (issue #28's carousel shows one at a
+  // time — navigate with Next between them) so both paths are proven to "pass" (criterion 6).
   await page.getByTestId("url-input").fill("https://maxtechera.dev");
   await page.getByRole("button", { name: /analyze/i }).click();
   await expect(page.getByTestId("op-controls")).toBeVisible({ timeout: 30_000 });
@@ -185,10 +202,12 @@ test("3 · captureThumbnail succeeds against a same-origin iframe and returns nu
     chat.getState().pushGallery();
   }, successUrl as string);
 
-  const withThumbCard = page.getByTestId("variant-card").filter({ hasText: "Has thumbnail" });
-  const noThumbCard = page.getByTestId("variant-card").filter({ hasText: "No thumbnail" });
-  await expect(withThumbCard.getByTestId("variant-thumbnail")).toBeVisible();
-  await expect(noThumbCard.getByTestId("variant-thumbnail-fallback")).toBeVisible();
+  await expect(page.getByTestId("variant-name")).toHaveText("Has thumbnail");
+  await expect(page.getByTestId("variant-thumbnail")).toBeVisible();
+
+  await page.getByTestId("carousel-next").click();
+  await expect(page.getByTestId("variant-name")).toHaveText("No thumbnail");
+  await expect(page.getByTestId("variant-thumbnail-fallback")).toBeVisible();
 });
 
 // ── 4 (keyless, fixture) · 3×-length headline → overflow + line-growth warnings ─────────

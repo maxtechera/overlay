@@ -230,6 +230,13 @@ test("3 · Reject → applied:false; agent acknowledges + asks direction, never 
 test("4 · tool rows show states + durations; reasoning streams when thinking is on @m1 @ai", async ({ page }) => {
   await loadAndWaitForFirstTurn(page);
 
+  // Issue #28 (quieter transcript): consecutive tool/reasoning blocks are coalesced into a
+  // collapsed "working… (N steps)" line by default — expand every such group before looking
+  // for the underlying tool-row/reasoning-block rows (same rows, just nested one level down).
+  const toggles = page.getByTestId("working-group-toggle");
+  const toggleCount = await toggles.count();
+  for (let i = 0; i < toggleCount; i++) await toggles.nth(i).click();
+
   // The first turn always explores via read_component/list_components (system prompt rule:
   // "Explore before changing") — at least one non-proposal tool row should have rendered.
   const toolRow = page.getByTestId("tool-row").first();

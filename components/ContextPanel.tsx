@@ -5,6 +5,10 @@
  * launching a cohort in August; never touch pricing copy" — editable, injected into
  * buildSystem() every turn (localStorage-persisted per hostname until M4's .memory/ takes
  * over — TECH-SPEC §9).
+ *
+ * Issue #28 (item 1): this is now mounted inside ContextToolbar's popover (opened on demand
+ * from a toolbar button) rather than pinned above the chat transcript — the persistence
+ * behavior below is unchanged, only the surrounding shell moved.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -26,10 +30,7 @@ export function ContextPanel() {
   };
 
   return (
-    <div className="chat-input" data-testid="context-panel" style={{ flex: "none" }}>
-      <div className="font-mono text-muted-foreground text-xs uppercase tracking-wide" style={{ marginBottom: 6 }}>
-        Project context
-      </div>
+    <div data-testid="context-panel">
       <textarea
         data-testid="context-textarea"
         onBlur={commit}
@@ -38,11 +39,11 @@ export function ContextPanel() {
           setDraft(e.currentTarget.value);
         }}
         placeholder="e.g. launching a cohort in August; never touch pricing copy"
-        rows={2}
-        style={{ width: "100%", fontSize: 12, resize: "vertical" }}
+        rows={4}
+        style={{ width: "100%", fontSize: 13, resize: "vertical" }}
         value={draft}
       />
-      <button data-testid="context-save" onClick={commit} style={{ marginTop: 6, fontSize: 12 }} type="button">
+      <button data-testid="context-save" onClick={commit} style={{ marginTop: 8, fontSize: 12 }} type="button">
         Apply
       </button>
     </div>

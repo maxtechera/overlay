@@ -123,9 +123,14 @@ export const makeTools = (deps: Deps) => ({
     },
   }),
 
+  // Issue #28 (item 3): create_variant below enforces a hard cap of 4 arms per experiment (or
+  // 4 ad-hoc variants when no experimentId is given) — a demo-polish guard against unbounded
+  // variant sessions. App-side, independent of whatever the prompt steers toward (lib/prompts.ts
+  // also asks for fewer/smaller variants, but this is the enforcement backstop). Ignoring the
+  // 5th call is a normal tool result, never a throw.
   create_variant: tool({
     description:
-      "Save a recommendation as a new named variant and make it active. Use one variant per distinct angle/hypothesis — call this again (with a new name) before starting a different angle. Optionally aim it at a brief segment, or tie it to an Experiment Plan card's id as one of that experiment's arms.",
+      "Save a recommendation as a new named variant and make it active. Use one variant per distinct angle/hypothesis — call this again (with a new name) before starting a different angle. Optionally aim it at a brief segment, or tie it to an Experiment Plan card's id as one of that experiment's arms. Capped at 4 variants per experiment (or 4 ad-hoc variants when no experimentId is given) — a 5th call for the same scope is ignored, not created.",
     inputSchema: z.object({
       name: z.string().max(60),
       goal: z.string().optional(),
@@ -133,6 +138,16 @@ export const makeTools = (deps: Deps) => ({
       experimentId: z.string().optional(),
     }),
     execute: async ({ name, goal, segment, experimentId }) => {
+      // Scope = the experiment this arm belongs to, or "ad-hoc" (no experimentId) as its own
+      // group — either way, capped at 4 (issue #28's "≤4 variants" clamp).
+      const MAX_ARMS_PER_SCOPE = 4;
+      const existingInScope = useVariantsStore
+        .getState()
+        .list.filter((v) => (experimentId ? v.experimentId === experimentId : !v.experimentId)).length;
+      if (existingInScope >= MAX_ARMS_PER_SCOPE) {
+        return { created: false, reason: `max ${MAX_ARMS_PER_SCOPE} arms per experiment` };
+      }
+
       // Every new variant starts from a clean control — revert whatever was previously active
       // before creating+activating the new (empty) one (TECH-SPEC §9's switching semantics
       // apply here too: create_variant is itself a switch, from wherever we were to "control",
@@ -144,7 +159,7 @@ export const makeTools = (deps: Deps) => ({
       }
       const variant = useVariantsStore.getState().create(name, goal, segment, experimentId);
       useVariantsStore.getState().setActiveId(variant.id);
-      return { id: variant.id, name: variant.name, active: true, experimentId: variant.experimentId };
+      return { created: true, id: variant.id, name: variant.name, active: true, experimentId: variant.experimentId };
     },
   }),
 

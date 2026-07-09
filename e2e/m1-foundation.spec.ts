@@ -232,7 +232,7 @@ test("5 · clicking any link inside preview does NOT navigate the iframe away @m
 // ── 6. Bot-walled / unservable URL → clean 422 error in UI ──────────────────────
 //
 // Tests TWO 422 paths:
-//  a) A URL returning non-HTML (JSON API) → "not-html" 422 (fast, deterministic)
+//  a) A URL returning non-HTML (JSON API) → "not-html" 422 (deterministic, no live network)
 //  b) linear.app: at the time of TECH-SPEC validation (2026-07-07) this was bot-walled
 //     and returned 422; if it now passes through (site changed), log the observation
 //     and fall back to testing the error-UI path via the JSON endpoint.
@@ -240,16 +240,37 @@ test("5 · clicking any link inside preview does NOT navigate the iframe away @m
 // The acceptance criterion is: a non-servable URL → 422 → clean error message in chat,
 // no hang. linear.app is the named failure-lap site but the detection path (not the
 // specific domain) is what we verify.
+//
+// Issue #30: this used to fill in `https://httpbin.org/json` — a LIVE external service —
+// to make our own /api/ingest reject it as "not-html". When httpbin was slow/unreachable
+// CI went red on an ~31s timeout (a documented flake class per CLAUDE.md: "external sites
+// are not stable fixtures"). /api/ingest's SSRF guard (lib-adjacent, out of this issue's
+// scope) blocks "localhost"/private IPs, so a same-origin fixture route can't be used to
+// reach the real not-html branch either. Instead we intercept the client's OWN same-origin
+// probe request (`/api/ingest?url=...` — see app/page.tsx handleSubmit) with a served,
+// deterministic 422 fixture matching exactly what a real not-HTML target produces
+// (app/api/ingest/route.ts step 3b: `{ reason: "not-html" }`). Zero network dependency,
+// zero timeout risk, while still exercising the real client probe → error-state → chat
+// message code path end-to-end.
 
 test("6 · unservable URL (non-HTML / bot-wall) surfaces clean 422 in chat, no hang @m1", async ({
   page,
 }) => {
   await page.goto("/");
 
-  // Use httpbin.org/json which returns application/json — our ingest rejects it as "not-html".
-  // Fallback reasoning: if httpbin is down, we'd also get an "upstream-error" or "fetch-failed"
-  // 422, which still triggers the error path correctly.
-  const nonHtmlUrl = "https://httpbin.org/json";
+  // A plausible "JSON API mistaken for a page" URL — never actually fetched; see comment above.
+  const nonHtmlUrl = "https://example.com/api/data.json";
+
+  // Deterministic served-marker fixture: intercept the app's own ingest probe request and
+  // fulfill with the exact 422 body a live not-HTML target would produce. No network call
+  // — to example.com or anywhere else — ever happens.
+  await page.route("**/api/ingest?url=**", async (route) => {
+    await route.fulfill({
+      status: 422,
+      contentType: "application/json",
+      body: JSON.stringify({ reason: "not-html" }),
+    });
+  });
 
   await page.getByTestId("url-input").fill(nonHtmlUrl);
   await page.getByRole("button", { name: /analyze/i }).click();

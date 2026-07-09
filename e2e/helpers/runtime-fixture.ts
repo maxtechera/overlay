@@ -108,3 +108,26 @@ export async function applyOpOnFixture(
   );
   return result as { ok: boolean; error?: string; warnings?: string[] };
 }
+
+/**
+ * Send `{t: "revert-op", ...}` directly via window.postMessage and await the "op-reverted" echo
+ * for THIS opId — the counterpart to applyOpOnFixture above, added additively for the M6 eval
+ * harness's apply/revert round-trip smoke check (issue #6). Mirrors lib/runtime.ts's revert-op
+ * handler exactly (same protocol shape e2e/m3-variants.spec.ts's tab-switch spec relies on).
+ */
+export async function revertOpOnFixture(page: Page, opId: string): Promise<{ opId: string }> {
+  const result = await page.evaluate((opId) => {
+    return new Promise((resolve) => {
+      const listener = (e: MessageEvent) => {
+        const msg = e.data as { t?: string; opId?: string };
+        if (msg && msg.t === "op-reverted" && msg.opId === opId) {
+          window.removeEventListener("message", listener);
+          resolve({ opId: msg.opId });
+        }
+      };
+      window.addEventListener("message", listener);
+      window.postMessage({ t: "revert-op", opId, requestId: `fixture-revert-${opId}` }, "*");
+    });
+  }, opId);
+  return result as { opId: string };
+}

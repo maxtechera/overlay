@@ -21,7 +21,7 @@
  * over the same `.memory/maxtechera.dev/` folder.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { buildSystem } from "../lib/prompts";
@@ -59,6 +59,26 @@ function minimalNode(overrides: Partial<PageNode>): PageNode {
   };
 }
 
+/**
+ * PR #41 round-2 review (TOCTOU hardening): a single GET read-back after seeding isn't enough
+ * proof nothing is still mutating `.memory/<site>/` — an in-flight autosave fetch dispatched
+ * just before we navigated away can still land AFTER our read. Poll until two CONSECUTIVE GETs
+ * come back byte-identical (the site has gone quiet) before trusting a seed.
+ */
+async function waitForMemoryQuiescent(page: Page, site: string, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let prev: string | null = null;
+  while (Date.now() < deadline) {
+    const res = await page.request.get(`/api/memory?site=${encodeURIComponent(site)}`);
+    const body = await res.text();
+    if (prev !== null && body === prev) return;
+    prev = body;
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  // Not a hard failure — the caller's own content assertions right after seeding will catch a
+  // genuinely still-racing write; this is best-effort quiescence, not a guarantee.
+}
+
 // ── 1 · save_memory persists a real, readable file (keyless) ───────────────────────────
 
 test("1 · save_memory tool call writes .memory/<hostname>/memory.md, readable back verbatim @m4", async ({
@@ -83,11 +103,22 @@ test("1 · save_memory tool call writes .memory/<hostname>/memory.md, readable b
 
   // Give the fire-and-forget POST a moment to land, then read the file straight off disk —
   // proving it's a REAL file (openable in an editor), not just an in-memory store value.
+  // Polling on CONTENT EQUALITY (not just existsSync) is deliberate (PR #41 round-2 review):
+  // the route's atomic write (temp file + rename) means existsSync would only ever see the old
+  // or fully-new file anyway, but polling for the exact expected bytes is cheap insurance and
+  // also naturally waits out any transient ENOENT while the temp-file rename is in flight.
   await expect
-    .poll(() => existsSync(join(MEMORY_ROOT, site, "memory.md")), { timeout: 5_000 })
-    .toBe(true);
-  const onDisk = readFileSync(join(MEMORY_ROOT, site, "memory.md"), "utf-8");
-  expect(onDisk).toBe(content);
+    .poll(
+      () => {
+        try {
+          return readFileSync(join(MEMORY_ROOT, site, "memory.md"), "utf-8");
+        } catch {
+          return null;
+        }
+      },
+      { timeout: 5_000 }
+    )
+    .toBe(content);
 });
 
 // ── 2 · path-safety (keyless) ───────────────────────────────────────────────────────────
@@ -250,6 +281,11 @@ test.describe.serial("resume (mutates .memory/maxtechera.dev/ — serialized)", 
     // POST lands and silently overwrite it with the real (unrelated) extraction state.
     await page.goto("about:blank");
 
+    // TOCTOU hardening (PR #41 round-2 review): about:blank tears down THIS page's subscriptions,
+    // but an in-flight autosave fetch dispatched a moment earlier can still be in transit — wait
+    // for two consecutive identical reads (site gone quiet) before trusting the ground is clear.
+    await waitForMemoryQuiescent(page, "maxtechera.dev");
+
     const savedHeroNode = minimalNode({
       id: "n-old-hero",
       path: "hero",
@@ -308,11 +344,18 @@ test.describe.serial("resume (mutates .memory/maxtechera.dev/ — serialized)", 
     });
     expect(seedRes.ok()).toBe(true);
 
-    // Immediately re-read it back to prove the seed actually landed (and wasn't itself raced
-    // by something else) before moving on to phase 2 — a fast, cheap determinism guard.
-    const verifySeed = await page.request.get("/api/memory?site=maxtechera.dev");
-    const verifyBody = (await verifySeed.json()) as { state: MemoryState | null };
-    expect(verifyBody.state?.variants.length, "seed must have landed with exactly 1 variant before phase 2").toBe(1);
+    // Re-read it back TWICE — once immediately, once past the 400ms autosave debounce window —
+    // to prove the seed actually landed AND stayed put (a single immediate read-back isn't
+    // enough: a delayed in-flight autosave could still clobber it a few hundred ms later).
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const verifySeed = await page.request.get("/api/memory?site=maxtechera.dev");
+      const verifyBody = (await verifySeed.json()) as { state: MemoryState | null };
+      expect(
+        verifyBody.state?.variants.length,
+        `seed must have exactly 1 variant before phase 2 (stability check ${attempt + 1}/2)`
+      ).toBe(1);
+      if (attempt === 0) await new Promise((r) => setTimeout(r, 600));
+    }
 
     // Phase 2: a fresh page load ("quit the browser, reopen") + resubmit the same URL.
     await page.route("**/api/anthropic/v1/**", (route) => route.abort()); // keyless — no key needed at all

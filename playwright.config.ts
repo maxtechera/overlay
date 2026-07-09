@@ -3,6 +3,10 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "./e2e",
   timeout: 60_000,
+  // M4 (#4) / PR #41 round-2 review: clears `.memory/` once before the run so no spec's real
+  // extraction (which triggers the debounced autosave) can leak state into another spec's
+  // `.memory/<hostname>/` — see e2e/global-setup.ts for the full rationale.
+  globalSetup: "./e2e/global-setup.ts",
   // Serialize on CI only: the <500ms apply criterion (PRD.md:497, TECH-SPEC.md:543)
   // measures a real client-side round-trip. On CI's 2-vCPU shared runner, 2 concurrent
   // Playwright workers contend for CPU, and a neighbor worker's test can starve the one

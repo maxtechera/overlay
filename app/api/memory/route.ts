@@ -9,6 +9,17 @@
  * via separators) AND must not contain ".." as a substring (a bare ".." would otherwise pass
  * the character-class regex — both chars are in it). The resolved directory is also asserted to
  * stay under MEMORY_ROOT as defense-in-depth. Server fs, single-user-grade — no library.
+ *
+ * Durability (PR #41 round-2 review — a real data-loss bug): `fs.writeFile` is NOT atomic —
+ * two concurrent POSTs for the same site (e.g. the debounced autosave firing while a manual
+ * save_memory call is also in flight) can interleave their writes on the SAME file and produce
+ * unparseable JSON; GET's `catch { state = null }` then SILENTLY discards the entire saved
+ * session. Fixed two ways:
+ *   1. atomicWriteFile: write to a temp file in the SAME directory, then `fs.rename` — rename
+ *      is atomic on the same filesystem, so a reader only ever sees the fully-old or fully-new
+ *      content, never a torn write.
+ *   2. withSiteLock: an in-process per-hostname promise chain so a site's writes never overlap
+ *      even in issue order (not just non-corrupting — logically serialized too).
  */
 
 import { promises as fs } from "fs";
@@ -30,6 +41,29 @@ function siteDir(site: string | null): string | null {
   const resolvedRoot = path.resolve(MEMORY_ROOT) + path.sep;
   if (!path.resolve(dir).startsWith(resolvedRoot)) return null; // belt-and-suspenders
   return dir;
+}
+
+/** write-to-temp + rename — atomic on the same filesystem, so readers never see a torn write. */
+async function atomicWriteFile(filePath: string, content: string): Promise<void> {
+  const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  await fs.writeFile(tmpPath, content, "utf-8");
+  await fs.rename(tmpPath, filePath);
+}
+
+// In-process per-hostname promise chain — every POST for a given site queues behind the
+// previous one instead of racing it on disk. Module-scoped (survives across requests within
+// this server process; a fresh process — e.g. a redeploy — starts with an empty map, which is
+// fine since there's nothing in flight to serialize against yet).
+const siteLocks = new Map<string, Promise<unknown>>();
+
+function withSiteLock<T>(site: string, fn: () => Promise<T>): Promise<T> {
+  const prior = siteLocks.get(site) ?? Promise.resolve();
+  const next = prior.then(fn, fn); // run fn regardless of whether the PRIOR write rejected
+  siteLocks.set(
+    site,
+    next.catch(() => {})
+  ); // swallow so a rejection here never wedges the chain for the NEXT caller
+  return next;
 }
 
 export async function GET(req: Request): Promise<Response> {
@@ -74,19 +108,22 @@ export async function POST(req: Request): Promise<Response> {
   const dir = siteDir(site);
   if (!dir) return json({ error: "invalid site" }, 400);
 
-  await fs.mkdir(dir, { recursive: true });
+  await withSiteLock(site!, async () => {
+    await fs.mkdir(dir, { recursive: true });
 
-  const writes: Promise<void>[] = [];
-  if (typeof body?.memory === "string") {
-    writes.push(fs.writeFile(path.join(dir, "memory.md"), body.memory, "utf-8"));
-  }
-  if (typeof body?.context === "string") {
-    writes.push(fs.writeFile(path.join(dir, "context.md"), body.context, "utf-8"));
-  }
-  if (body?.state !== undefined) {
-    writes.push(fs.writeFile(path.join(dir, "state.json"), JSON.stringify(body.state, null, 2), "utf-8"));
-  }
+    const writes: Promise<void>[] = [];
+    if (typeof body?.memory === "string") {
+      writes.push(atomicWriteFile(path.join(dir, "memory.md"), body.memory));
+    }
+    if (typeof body?.context === "string") {
+      writes.push(atomicWriteFile(path.join(dir, "context.md"), body.context));
+    }
+    if (body?.state !== undefined) {
+      writes.push(atomicWriteFile(path.join(dir, "state.json"), JSON.stringify(body.state, null, 2)));
+    }
 
-  await Promise.all(writes);
+    await Promise.all(writes);
+  });
+
   return json({ saved: true });
 }

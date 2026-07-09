@@ -56,6 +56,9 @@ test("gate on · no cookie → every protected API route 401s @smoke", async () 
   expect(ingest.status(), "/api/ingest without cookie must 401").toBe(401);
   const anthropic = await ctx.post(`/api/anthropic/v1/messages`, { data: {} });
   expect(anthropic.status(), "/api/anthropic without cookie must 401 (never reaches the key)").toBe(401);
+  // M4 (#4) / PR #41 review (NIT B): the new memory route must be in the gate's coverage too.
+  const memory = await ctx.get(`/api/memory?site=example.com`);
+  expect(memory.status(), "/api/memory without cookie must 401").toBe(401);
   await ctx.dispose();
 });
 
@@ -89,6 +92,10 @@ test("gate on · correct password → httpOnly cookie → protected routes pass 
   // example.com fetch is fine; the point is it's NOT 401 anymore).
   const ingest = await ctx.get(`/api/ingest?url=${encodeURIComponent("https://example.com")}`);
   expect(ingest.status(), "authed request must clear the gate (not 401)").not.toBe(401);
+
+  // M4 (#4) / PR #41 review (NIT B): /api/memory too.
+  const memory = await ctx.get(`/api/memory?site=example.com`);
+  expect(memory.status(), "authed /api/memory request must clear the gate (not 401)").not.toBe(401);
 
   const status = await ctx.get(`/api/auth`);
   expect(await status.json()).toEqual({ gateEnabled: true, authed: true });

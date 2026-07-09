@@ -8,7 +8,7 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { stepCountIs, streamText, type ModelMessage } from "ai";
 import { buildSystem } from "./prompts";
-import { useChatStore, useSchemaStore, useSettingsStore } from "./store";
+import { useChatStore, useMemoryStore, useSchemaStore, useSettingsStore } from "./store";
 import type { SendToIframe } from "./tools";
 import { makeTools } from "./tools";
 import type { Op } from "./types";
@@ -141,12 +141,31 @@ export async function runTurn(userText: string, send: SendToIframe): Promise<voi
   }
 }
 
-/** First turn on page load: extraction has already run; the agent narrates it (TECH-SPEC §5 — the agent never calls ingest/extract itself). */
+/**
+ * First turn on page load: extraction has already run; the agent narrates it (TECH-SPEC §5 —
+ * the agent never calls ingest/extract itself). M4 (#4): on a RESUMED session (a saved
+ * state.json was found for this hostname), app/page.tsx sets useMemoryStore's resumeSummary
+ * before extraction settles — fold it into the prompt so the greeting references what it
+ * knows ("3 learnings on file, last variant scored +0.12, hero unchanged" — PRD §4.6's
+ * signature moment). This is a normal chat turn (still an @ai path) — it's the BRIEF-generation
+ * call (lib/brief.ts) that resume skips entirely, not this greeting.
+ */
 export async function runFirstTurn(send: SendToIframe): Promise<void> {
   const nodeCount = useSchemaStore.getState().order.length;
-  const prompt =
-    nodeCount > 0
-      ? "[page loaded] The page has been extracted. Introduce yourself briefly and give me a mini-brief on what you see, referencing the actual hero content."
-      : "[page loaded] Extraction ran but found no identifiable components (no hero). Say so plainly.";
+  const resumeSummary = useMemoryStore.getState().resumeSummary;
+
+  let prompt: string;
+  if (nodeCount === 0) {
+    prompt = "[page loaded] Extraction ran but found no identifiable components (no hero). Say so plainly.";
+  } else if (resumeSummary) {
+    prompt =
+      `[page reopened] Resuming a known site — here's what's on file: ${resumeSummary}. ` +
+      "The page has been re-extracted fresh. Greet me referencing what you remember from last " +
+      "session (briefly), then give a short update — call out anything flagged stale rather than " +
+      "trusting the old snapshot.";
+  } else {
+    prompt =
+      "[page loaded] The page has been extracted. Introduce yourself briefly and give me a mini-brief on what you see, referencing the actual hero content.";
+  }
   await runTurn(prompt, send);
 }

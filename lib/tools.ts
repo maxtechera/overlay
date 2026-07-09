@@ -8,10 +8,12 @@ import { tool } from "ai";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { scoreVariant, type SlotSnapshot } from "./com";
+import { hostnameOf, postMemory } from "./memory";
 import type { RuntimeMsg } from "./protocol";
 import {
   useApprovalsStore,
   useExperimentsStore,
+  useMemoryStore,
   usePreviewStore,
   useSchemaStore,
   useSessionStore,
@@ -245,6 +247,23 @@ export const makeTools = (deps: Deps) => ({
       }
 
       return score;
+    },
+  }),
+
+  // M4 (#4) — TECH-SPEC §11: agent-curated durable memory, "a CLAUDE.md for the website".
+  // Replaces the whole document (not an append) — the agent curates, same discipline as
+  // Claude Code's own CLAUDE.md. Persists immediately (fire-and-forget — postMemory never
+  // throws) so ".memory/<hostname>/memory.md exists after a save" holds without waiting for
+  // the next debounced full-state autosave in app/page.tsx.
+  save_memory: tool({
+    description:
+      "Replace the site memory document. Use for durable learnings only (taste rules, do-not-touch, what worked). Keep it under 100 lines; curate, don't append forever.",
+    inputSchema: z.object({ content: z.string().max(8000) }),
+    execute: async ({ content }) => {
+      useMemoryStore.getState().setContent(content);
+      const site = hostnameOf(useSessionStore.getState().url);
+      if (site) void postMemory(site, { memory: content });
+      return { saved: true };
     },
   }),
 });

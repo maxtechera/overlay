@@ -27,7 +27,14 @@ export function VariantTabs({ send }: { send: SendToIframe }) {
     }`;
 
   return (
-    <div className="flex items-center gap-1 border-b border-border bg-background px-2 py-1" data-testid="variant-tabs">
+    // absolute + z-10: .preview-frame's iframe is `position: absolute; inset: 0` (app/globals.css)
+    // and paints above static in-flow siblings regardless of DOM order — an un-positioned tabs
+    // bar would render but sit BEHIND the iframe, invisible and unclickable. Floating it as its
+    // own top overlay (own stacking context) keeps it visible and interactive above the preview.
+    <div
+      className="absolute top-0 right-0 left-0 z-10 flex items-center gap-1 border-border border-b bg-background/95 px-2 py-1 backdrop-blur-sm"
+      data-testid="variant-tabs"
+    >
       <button
         className={tabClass(activeId === "control")}
         data-active={activeId === "control"}

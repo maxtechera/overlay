@@ -259,9 +259,14 @@ test("5 · a contrast-degrading change → contrast warning on op-applied, warn-
 // ── 6 (keyless, fixture) · media alt lost → alt warning, warn-only ──────────────────────
 
 test("6 · clearing a media slot's alt text → alt-lost warning on op-applied, warn-only @m3", async ({ page }) => {
+  // No heading anywhere in this fixture — a hero-candidate heading (h1/h2/[role=heading]) would
+  // get climbed-to and CLAIM this very section as the hero container (detectHero's "climbed
+  // ancestor is itself a <section>" special case), swallowing the image before the ladder's
+  // section/collection rungs ever see it. Heading-free keeps this a plain section with a media
+  // slot, which is all this test needs.
   const html = `<!DOCTYPE html><html><head><title>alt fixture</title>
 <style>body{margin:0}.card{width:95vw;padding:20px}</style></head>
-<body><section class="card"><h2>A section</h2>
+<body><section class="card">
 <img alt="A descriptive cat photo" width="80" height="60"
      src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBTAA7" /></section></body></html>`;
 
@@ -356,14 +361,20 @@ test("7 · switching variant tabs on a real page reverts to control and replays 
 // ── 8 (keyless) · Build arms seeds the composer with the REAL experiment id ─────────────
 
 test("8 · 'Build arms' seeds the composer with the experiment's real id and a create_variant instruction @m3", async ({ page }) => {
-  await submitAndWaitForExtraction(page);
-
+  // Deliberately skip the real ingest/brief/plan flow: submitting a URL fires a LIVE
+  // runBriefAndPlan() in the background (TECH-SPEC §5) whose eventual setList() call would
+  // race and clobber a directly-seeded experiments list. Seed both the experiments store AND
+  // the `plan` chat block directly — this test only needs ExperimentPlanBlock mounted, not a
+  // real page loaded.
+  await page.goto("/");
   await page.evaluate(() => {
     type Store<S> = { setState: (s: Partial<S>) => void };
     const experiments = (window as unknown as { __overlayExperimentsStore: Store<{ list: unknown[] }> }).__overlayExperimentsStore;
     experiments.setState({
       list: [{ id: "exp-real-id-123", name: "Hero — Angle test", targetPath: "hero", hypothesis: "Because reasons.", status: "proposed", armIds: [] }],
     });
+    const chat = (window as unknown as { __overlayChatStore: { getState: () => { pushPlan: () => void } } }).__overlayChatStore;
+    chat.getState().pushPlan();
   });
 
   await expect(page.getByTestId("experiment-card")).toBeVisible();

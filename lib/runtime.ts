@@ -972,6 +972,68 @@ function drawOverlay(nodes: PageNode[]): void {
   }
 }
 
+// ── M3 warn-only regression checks (TECH-SPEC §6) ──────────────────────────────
+// After every apply, re-compute the touched slots' facts and flag regressions on the op:
+// overflow growth, line-count growth, contrast falling below WCAG AA, lost alt text. Warn-only
+// — NEVER blocks or retries (the full verify loop is M7); this is the honesty layer.
+
+interface RegressionSnapshot {
+  lines?: number;
+  fontPx?: number;
+  contrast?: number;
+  overflowing?: boolean;
+  missingAlt?: boolean;
+}
+
+/** scrollWidth/scrollHeight vs clientWidth/clientHeight — a plain, direct overflow check
+ *  (distinct from textMetrics' `truncated`, which also true's on static ellipsis CSS present
+ *  regardless of content — that would never show a false->true transition on a REGRESSION). */
+function isOverflowing(el: Element): boolean {
+  const he = el as HTMLElement;
+  return he.scrollWidth > he.clientWidth || he.scrollHeight > he.clientHeight;
+}
+
+/** Snapshot a touched slot's regression-relevant facts: for media, just missingAlt; for text,
+ *  lines/fontPx/contrast plus overflow of the slot element OR its direct parent ("the target or
+ *  its parent", TECH-SPEC §6) — the parent is where a fixed-size wrapper would clip growth the
+ *  slot element itself (often auto-sized) would never show. */
+function regressionSnapshot(slotEl: Element): RegressionSnapshot {
+  if (slotEl.tagName === "IMG") return { missingAlt: mediaMissingAlt(slotEl) };
+  const metrics = textMetrics(slotEl);
+  const parent = slotEl.parentElement;
+  const overflowing = isOverflowing(slotEl) || (parent ? isOverflowing(parent) : false);
+  return { lines: metrics.lines, fontPx: metrics.fontPx, contrast: metrics.contrast, overflowing };
+}
+
+/** Diff before/after snapshots for one slot into human-readable warning strings. Pure —
+ *  exercised directly by e2e/m3-variants.spec.ts against synthetic before/after facts, no DOM
+ *  needed, alongside the live-fixture apply-op specs. */
+function regressionWarnings(slotName: string, before: RegressionSnapshot, after: RegressionSnapshot): string[] {
+  const warnings: string[] = [];
+
+  if ("missingAlt" in before || "missingAlt" in after) {
+    if (!before.missingAlt && after.missingAlt) warnings.push(`${slotName}: alt text lost`);
+    return warnings;
+  }
+
+  if (!before.overflowing && after.overflowing) {
+    warnings.push(`${slotName}: overflow — content now exceeds its container`);
+  }
+  if (before.lines !== undefined && after.lines !== undefined && after.lines > before.lines) {
+    warnings.push(`${slotName}: line count grew from ${before.lines} to ${after.lines}`);
+  }
+  if (before.contrast !== undefined && after.contrast !== undefined) {
+    const fontPx = after.fontPx ?? 16;
+    const threshold = fontPx >= 24 ? 3 : 4.5;
+    if (before.contrast >= threshold && after.contrast < threshold) {
+      warnings.push(
+        `${slotName}: contrast dropped below WCAG AA (${before.contrast.toFixed(2)}:1 → ${after.contrast.toFixed(2)}:1)`
+      );
+    }
+  }
+  return warnings;
+}
+
 // ── apply op helper ──
 function applySlots(
   nodeId: string,
@@ -1054,6 +1116,14 @@ window.addEventListener("message", (e) => {
         return;
       }
 
+      // M3 warn-only regression checks: snapshot BEFORE facts per touched slot, ahead of the
+      // mutation, so we can diff against AFTER once things settle.
+      const before: Record<string, RegressionSnapshot> = {};
+      for (const slotName of Object.keys(op.slots)) {
+        const slotEl = getSlotElement(op.target, slotName, el);
+        if (slotEl) before[slotName] = regressionSnapshot(slotEl);
+      }
+
       const prev = applySlots(op.target, el, op.slots, true);
       prevApplied.set(opId, { targetNodeId: op.target, prevSlots: prev });
 
@@ -1077,8 +1147,24 @@ window.addEventListener("message", (e) => {
         }
       }, 1000);
 
-      post({ t: "op-applied", opId, ok: true, requestId });
-      if (overlayOn) drawOverlay(lastNodes);
+      // Defer the AFTER measurement one animation frame: microtasks (including any
+      // MutationObserver callbacks the HOST page itself installed, and general layout/style
+      // settling from the text change) always drain before "update the rendering" runs — so by
+      // the time this fires, AFTER never races a still-pending style recalc. Warn-only: never
+      // blocks ok:true, never retries (TECH-SPEC §6).
+      requestAnimationFrame(() => {
+        const warnings: string[] = [];
+        for (const slotName of Object.keys(op.slots)) {
+          const slotEl = getSlotElement(op.target, slotName, el);
+          const beforeFacts = before[slotName];
+          if (!slotEl || !beforeFacts) continue;
+          const afterFacts = regressionSnapshot(slotEl);
+          warnings.push(...regressionWarnings(slotName, beforeFacts, afterFacts));
+        }
+
+        post({ t: "op-applied", opId, ok: true, warnings: warnings.length > 0 ? warnings : undefined, requestId });
+        if (overlayOn) drawOverlay(lastNodes);
+      });
       break;
     }
 

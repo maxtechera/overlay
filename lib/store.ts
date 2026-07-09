@@ -354,6 +354,7 @@ export type ChatBlock =
   | { kind: "brief"; id: string } // no payload — BriefArtifact reads session.brief live
   | { kind: "plan"; id: string } // no payload — ExperimentPlanBlock reads experiments.list live
   | { kind: "gallery"; id: string } // no payload — VariantGalleryBlock reads variants.list live
+  | { kind: "export"; id: string } // no payload — ExportBlock reads variants/experiments live (M5/#10)
   | { kind: "error"; id: string; text: string };
 
 export interface Telemetry {
@@ -386,6 +387,7 @@ interface ChatState {
   pushBrief: () => void;
   pushPlan: () => void;
   pushGallery: () => void;
+  pushExport: () => void;
   commitTurn: (userMsg: ModelMessage, responseMsgs: ModelMessage[], telemetry: Telemetry) => void;
 }
 
@@ -553,6 +555,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
       s.blocks.at(-1)?.kind === "gallery"
         ? s
         : { blocks: [...s.blocks, { kind: "gallery", id: nanoid() }], activeTextId: null, activeReasoningId: null }
+    ),
+
+  // Pushed by the Export button on the Variant Gallery (M5/#10). Not session-wide deduped
+  // (gallery pattern) — only an immediate consecutive duplicate is skipped, same reasoning as
+  // pushGallery: a user may legitimately re-open Export later in the same session.
+  pushExport: () =>
+    set((s) =>
+      s.blocks.at(-1)?.kind === "export"
+        ? s
+        : { blocks: [...s.blocks, { kind: "export", id: nanoid() }], activeTextId: null, activeReasoningId: null }
     ),
 
   commitTurn: (userMsg, responseMsgs, telemetry) =>

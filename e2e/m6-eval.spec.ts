@@ -42,8 +42,10 @@ test("pnpm eval — extraction smoke + COM sanity run clean, exit 0, readable pe
   expect(stdout).toMatch(/02-obviously-worse\.json.*negative/);
   expect(stdout).toMatch(/03-identical\.json.*zero/);
 
-  // The suite can actually fail: the deliberately-inverted case is caught, not rubber-stamped.
-  expect(stdout).toMatch(/self-test: a deliberately-inverted scripted score is correctly flagged FAIL/);
+  // The suite can actually fail: swapping control/variant on a non-zero fixture flips the sign,
+  // proving the deterministic core (not a rubber-stamped stand-in) drives the verdict. Issue #45
+  // replaced the old scripted self-test with this mutation-worthy proof against the REAL scorer.
+  expect(stdout).toMatch(/mutation-worthy: swapping control\/variant on 01-obviously-better flips the sign/);
 
   // Clean pass/fail summary, 0 failures on a healthy tree.
   expect(stdout).toMatch(/=== Results: \d+ passed, 0 failed \/ \d+ total ===/);

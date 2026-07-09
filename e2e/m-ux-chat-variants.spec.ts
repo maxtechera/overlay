@@ -114,9 +114,11 @@ test("2b · a lone proposal/brief/gallery block is never swallowed into a workin
   await expect(page.getByTestId("working-group-toggle").first()).toContainText("1 step");
 });
 
-// ── 3 · create_variant clamped at 4 arms per experiment (keyless — the real tool, not a mock) ──
+// ── 3 · create_variant clamped at 5 arms per experiment (keyless — the real tool, not a mock) ──
+// Cap raised 4→5 by issue #35 (item 1) — full coverage of the new cap value lives in
+// e2e/m-ux-variants-5.spec.ts; these two keep proving the underlying clamp mechanism still works.
 
-test("3 · create_variant clamps at 4 arms per experiment — a 5th call is ignored, not created @ux", async ({ page }) => {
+test("3 · create_variant clamps at 5 arms per experiment — a 6th call is ignored, not created @ux", async ({ page }) => {
   await page.goto("/");
 
   const outputs = await page.evaluate(async () => {
@@ -131,20 +133,20 @@ test("3 · create_variant clamps at 4 arms per experiment — a 5th call is igno
     // switchActiveVariant's revert/replay loops are both empty) — a rejecting stub is enough.
     const tools = win.__overlayMakeTools({ send: () => Promise.reject(new Error("not used")) });
     const results: unknown[] = [];
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 6; i++) {
       results.push(await tools.create_variant.execute({ name: `Angle ${i + 1}`, experimentId: "exp-clamp-test" }, { toolCallId: `tc-${i}` }));
     }
     return results;
   });
 
   console.log(`[ux] create_variant clamp outputs verbatim: ${JSON.stringify(outputs)}`);
-  expect(outputs).toHaveLength(5);
-  for (const o of outputs.slice(0, 4)) {
-    expect((o as { created?: boolean }).created, "the first 4 calls each create an arm").toBe(true);
+  expect(outputs).toHaveLength(6);
+  for (const o of outputs.slice(0, 5)) {
+    expect((o as { created?: boolean }).created, "the first 5 calls each create an arm").toBe(true);
   }
-  const fifth = outputs[4] as { created?: boolean; reason?: string };
-  expect(fifth.created, "the 5th call for the SAME experiment is ignored, not created").toBe(false);
-  expect(fifth.reason ?? "").toMatch(/max 4/i);
+  const sixth = outputs[5] as { created?: boolean; reason?: string };
+  expect(sixth.created, "the 6th call for the SAME experiment is ignored, not created").toBe(false);
+  expect(sixth.reason ?? "").toMatch(/max 5/i);
 
   const armCount = await page.evaluate(
     () =>
@@ -152,10 +154,10 @@ test("3 · create_variant clamps at 4 arms per experiment — a 5th call is igno
         .getState()
         .list.filter((v) => v.experimentId === "exp-clamp-test").length
   );
-  expect(armCount, "exactly 4 arms exist for this experiment, never 5").toBe(4);
+  expect(armCount, "exactly 5 arms exist for this experiment, never 6").toBe(5);
 });
 
-test("3b · the clamp scopes independently per experiment — a different experimentId still gets its own 4 @ux", async ({ page }) => {
+test("3b · the clamp scopes independently per experiment — a different experimentId still gets its own 5 @ux", async ({ page }) => {
   await page.goto("/");
 
   const secondExpCount = await page.evaluate(async () => {
@@ -163,7 +165,7 @@ test("3b · the clamp scopes independently per experiment — a different experi
     type MakeTools = (deps: { send: (m: unknown) => Promise<unknown> }) => Tools;
     const win = window as unknown as { __overlayMakeTools: MakeTools };
     const tools = win.__overlayMakeTools({ send: () => Promise.reject(new Error("not used")) });
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 5; i++) {
       await tools.create_variant.execute({ name: `Exp1 Angle ${i + 1}`, experimentId: "exp-A" }, { toolCallId: `a-${i}` });
     }
     // A different experiment's arms are a separate scope — not blocked by exp-A's cap.

@@ -2,13 +2,15 @@
 
 /**
  * components/VariantGallery.tsx — TECH-SPEC §9's `gallery` ChatBlock, rebuilt as a compact
- * CAROUSEL (issue #28, item 4): one variant at a time, prev/next + dots, each slide showing
- * COM delta + thumbnail + an explicit **Apply** button (drives switchActiveVariant — the same
- * mechanics VariantTabs/the old grid used, just an explicit button now instead of a whole-card
- * click). Arms of the SAME experiment are ordered together (ranked by COM delta, best first)
- * with a shared experiment header + suggested allocation (control fixed 25%, COM-prior);
- * ad-hoc variants (no experimentId) follow, ranked the same way. Reads variants/experiments
- * store live — no payload on the block itself (same pattern as BriefArtifact/ExperimentPlan).
+ * CAROUSEL (issue #28, item 4; raised to a 5-per-module cap and re-verified by issue #35): one
+ * variant at a time, prev/next + dots, each slide showing COM delta + thumbnail + an explicit
+ * **Apply** button (drives switchActiveVariant — the same mechanics VariantTabs/the old grid
+ * used, just an explicit button now instead of a whole-card click — selecting one is always a
+ * deliberate click, never auto-applied). Arms of the SAME experiment are ordered together
+ * (ranked by COM delta, best first, weakest included/never hidden) with a shared experiment
+ * header + suggested allocation (control fixed 25%, COM-prior); ad-hoc variants (no
+ * experimentId) follow, ranked the same way. Reads variants/experiments store live — no
+ * payload on the block itself (same pattern as BriefArtifact/ExperimentPlan).
  */
 
 import { useState } from "react";
